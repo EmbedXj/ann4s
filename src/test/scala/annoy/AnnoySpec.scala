@@ -1,8 +1,8 @@
-package ann4s
+package annoy
 
 import java.io.FileWriter
 
-import ann4s.profiling.AnnoyDataset
+import annoy.profiling.AnnoyDataset
 import org.scalatest.{FlatSpec, Matchers}
 
 class AnnoySpec extends FlatSpec with Matchers {

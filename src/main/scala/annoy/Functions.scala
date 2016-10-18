@@ -1,4 +1,4 @@
-package ann4s
+package annoy
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -9,8 +9,6 @@ object Functions {
   val One = 1f
 
   val iterationSteps = 200
-
-  def showUpdate(text: String, xs: Any*): Unit = Console.err.print(text.format(xs: _*))
 
   def getNorm(x: Array[Float]): Float = {
     var sqNorm: Double = 0
@@ -38,7 +36,6 @@ object Functions {
     val i = rand.index(count)
     var j = rand.index(count - 1)
     j += (if (j >= i) 1 else 0)
-    println(s"s-twoMeans: $i $j ${if (cosine) 1 else 0}")
 
     helper.getFeat(nodes(i), iv)
     helper.getFeat(nodes(j), jv)
@@ -55,10 +52,8 @@ object Functions {
     while (l < iterationSteps) {
       val k = nodes(rand.index(count))
       val zz = helper.getFeat(k, vectorBuffer)
-      println(s"s-kfeat: " + zz.map(x => f"$x%.2f").mkString(" ") + " ")
       val di = ic * metric.distance(iv, zz)
       val dj = jc * metric.distance(jv, zz)
-      println(f"s-di: $di%.2f, dj: $dj%.2f")
       val norm = if (cosine) getNorm(zz) else One
       if (di < dj) {
         var z = 0

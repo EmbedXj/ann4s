@@ -1,4 +1,4 @@
-package ann4s
+package annoy
 
 trait Random {
   def flip(): Boolean
@@ -16,13 +16,11 @@ object FixRandom extends Random {
   override def flip(): Boolean = {
     val r = if ((fix & 1) == 1) true else false
     fix += 1
-    println(s"s-flip: $r")
     r
   }
   override def index(n: Int): Int = {
     val r = (fix % n).toInt
     fix += 1
-    println(s"s-index: $r $n")
     r
   }
 }

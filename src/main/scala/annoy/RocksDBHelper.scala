@@ -1,4 +1,4 @@
-package ann4s
+package annoy
 
 import java.io.File
 import java.util

@@ -1,4 +1,4 @@
-package ann4s;
+package annoy;
 
 public class Bytes {
 
@@ -20,10 +20,6 @@ public class Bytes {
 
     public static float bytes2float(byte[] b, int o) {
         return Float.intBitsToFloat(bytes2int(b, o));
-    }
-
-    public static byte[] float2bytes(float f) {
-        return int2bytes(Float.floatToIntBits(f));
     }
 
     public static float[] bytes2floats(byte[] b, int o, int s) {
@@ -76,33 +72,4 @@ public class Bytes {
         return ints;
     }
 
-    public static float dot(byte[] a, int oa, byte[] b, int ob, int d) {
-        int s = d * 4;
-        float r = 0;
-        for (int j = 0; j < s; j += 4) {
-            r += Float.intBitsToFloat(((a[oa + j]) << 24) | ((a[oa + j + 1] & 0xff) << 16) | ((a[oa + j + 2] & 0xff) <<  8) | ((a[oa + j + 3] & 0xff))) *
-                    Float.intBitsToFloat(((b[ob + j]) << 24) | ((b[ob + j + 1] & 0xff) << 16) | ((b[ob + j + 2] & 0xff) <<  8) | ((b[ob + j + 3] & 0xff)));
-        }
-        return r;
-    }
-
-//    public static void main(String[] args) {
-//        float[] values = {0.1f, 0.2f, 0.3f};
-//
-//        float d = 0;
-//        for (float v : values) {
-//            d += v * v;
-//        }
-//        System.out.println(d);
-//
-//        byte[] bytes = floats2bytes(values);
-//
-//        System.out.println(dot(bytes, 0, bytes, 0, 3));
-//
-//        float[] converted = bytes2floats(bytes, 0, values.length);
-//
-//        for (float aConverted : converted) {
-//            System.out.println(aConverted);
-//        }
-//    }
 }

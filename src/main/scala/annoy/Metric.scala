@@ -1,4 +1,4 @@
-package ann4s
+package annoy
 
 import scala.collection.mutable.ArrayBuffer
 
