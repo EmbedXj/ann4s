@@ -5,6 +5,7 @@ import java.util
 
 import org.rocksdb._
 import scala.collection.JavaConversions._
+import scala.collection.mutable.ArrayBuffer
 
 object RocksDBHelper {
 
@@ -21,6 +22,7 @@ object RocksDBHelper {
 }
 
 class RocksDBHelper(dbPath: String) {
+
 
   import RocksDBHelper._
 
@@ -129,8 +131,27 @@ class RocksDBHelper(dbPath: String) {
     }
   }
 
+  def getMetadata(atomicIndex: Int): String = {
+    new String(db.get(handles("metadata"), readOptions, Bytes.int2bytes(atomicIndex)))
+  }
+
   def putRoot(atomicNodeIndex: Int): Unit = {
     db.put(handles("node"), writeOptions, f"root_$atomicNodeIndex%010d".getBytes, Bytes.int2bytes(atomicNodeIndex))
+  }
+
+  def getRoots: ArrayBuffer[Int] = {
+    val roots = new ArrayBuffer[Int]()
+    val iter = db.newIterator(handles("node"))
+    iter.seek(f"root_${0}%010d".getBytes())
+    var i = 0
+    while (iter.isValid && i < Int.MaxValue) {
+      val root = Bytes.bytes2int(iter.value(), 0)
+      println(s"load root $root")
+      roots += root
+      iter.next()
+      i += 1
+    }
+    roots
   }
 
   def getNode(i: Int, dim: Int): (Array[Int], Array[Float]) = {
@@ -145,11 +166,11 @@ class RocksDBHelper(dbPath: String) {
   }
 
   def putLeafNode(atomicNodeIndex: Int, children: Array[Int]): Unit = {
-//    db.put(handles("node"), writeOptions, Bytes.int2bytes(atomicNodeIndex), Array[Byte]('l') ++ Bytes.ints2bytes(children))
+    db.put(handles("node"), writeOptions, Bytes.int2bytes(atomicNodeIndex), Array[Byte]('l') ++ Bytes.ints2bytes(children))
   }
 
   def putHyperplaneNode(atomicNodeIndex: Int, children: Array[Int], hyperplane: Array[Float]) = {
-//    db.put(handles("node"), writeOptions, Bytes.int2bytes(atomicNodeIndex), Array[Byte]('h') ++ Bytes.ints2bytes(children) ++ Bytes.floats2bytes(hyperplane))
+    db.put(handles("node"), writeOptions, Bytes.int2bytes(atomicNodeIndex), Array[Byte]('h') ++ Bytes.ints2bytes(children) ++ Bytes.floats2bytes(hyperplane))
   }
 
   def getFeat(i: Int, feat: Array[Float]): Array[Float] = {
@@ -172,67 +193,3 @@ class RocksDBHelper(dbPath: String) {
   val (db, handles) = openDB()
 
 }
-
-/*
-class Index(dbPath: String) {
-
-  def add(id: String, feat: Array[Float], metadata: String): Unit = {
-    val threadId = Thread.currentThread().getId
-
-    if (db.get(idmapColumnFamily, id.getBytes()) == null) {
-      val atomicIndexId = atomicInteger.getAndIncrement()
-      println(s"$id:$atomicIndexId: [$threadId] add a new item")
-      Thread.sleep(scala.util.Random.nextInt(1000 - id.toInt))
-      val atomicIndexIdBytes = f"$atomicIndexId%010d".getBytes
-      println(s"$id:$atomicIndexId a: ${new String(db.get(defaultColumnFamily, Keys.numItems))}")
-      val wb = new WriteBatch()
-      wb.merge(defaultColumnFamily, Keys.numItems, f"${atomicIndexId + 1}%010d".getBytes)
-      println(s"$id:$atomicIndexId merge $atomicIndexId")
-      wb.put(idmapColumnFamily, id.getBytes(), atomicIndexIdBytes)
-      wb.put(itemColumnFamily, atomicIndexIdBytes, Bytes.fromFloatArray(feat))
-      wb.put(metadataColumnFamily, atomicIndexIdBytes, metadata.getBytes())
-      db.write(new WriteOptions, wb)
-      println(s"$id:$atomicIndexId b: ${new String(db.get(defaultColumnFamily, Keys.numItems))}")
-    } else {
-      println(s"$id skip a new item")
-    }
-
-    RocksDB
-  }
-
-  def test(): Unit = {
-    println(s"current atomicInteger: $atomicInteger")
-    println(s"current numItems: ${new String(db.get(Keys.numItems))}")
-
-  }
-
-  //  def getFeat(id: String): Array[Float]
-  //
-  //  def getNumItems: Int
-  //
-  //  def getRandomId: String
-  //
-  //  def getMetadata(id: String): String
-  //
-  //  def addTree(): Unit
-  //
-  //  def search(feat: Array[Float]): Array[(String, Float)]
-  //
-  def close(): Unit = {
-    db.close()
-    options.close()
-    println("closed")
-  }
-
-}
-
-object InitDB {
-
-  def main(args: Array[String]) {
-
-
-  }
-
-}
-*/
-

@@ -20,7 +20,7 @@ class AnnoyIndex(dim: Int, metric: Metric, random: Random, dbPath: String) {
 
   private val childrenCapacity: Int = 2 + dim
 
-  private val roots = new ArrayBuffer[Int]()
+  private val roots = helper.getRoots
 
   private val atomicIndex = new AtomicInteger(helper.getNumItems)
 
@@ -29,8 +29,6 @@ class AnnoyIndex(dim: Int, metric: Metric, random: Random, dbPath: String) {
   private var nItems = atomicIndex.get()
 
   println(s"current atomicIndex: $atomicIndex")
-
-  reinitialize()
 
   def getDim: Int = dim
 
@@ -121,9 +119,9 @@ class AnnoyIndex(dim: Int, metric: Metric, random: Random, dbPath: String) {
 
   def getNItems: Int = helper.getNumItems
 
-  def getNnsByVector(w: Array[Float], n: Int): Array[(Int, Float)] = getNnsByVector(w, n, -1)
+  def getNnsByVector(w: Array[Float], n: Int): Array[(String, Float)] = getNnsByVector(w, n, -1)
 
-  def getNnsByVector(w: Array[Float], n: Int, k: Int): Array[(Int, Float)] = getAllNns(w, n, k)
+  def getNnsByVector(w: Array[Float], n: Int, k: Int): Array[(String, Float)] = getAllNns(w, n, k)
 
   val ord = new Ordering[(Int, Float)]{
     def compare(x: (Int, Float), y: (Int, Float)): Int = {
@@ -135,7 +133,7 @@ class AnnoyIndex(dim: Int, metric: Metric, random: Random, dbPath: String) {
     }
   }
 
-  private def getAllNns(v: Array[Float], n: Int, k: Int): Array[(Int, Float)] = {
+  private def getAllNns(v: Array[Float], n: Int, k: Int): Array[(String, Float)] = {
     val vectorBuffer = new Array[Float](dim)
     val searchK = if (k == -1) n * roots.length else k
 
@@ -177,13 +175,9 @@ class AnnoyIndex(dim: Int, metric: Metric, random: Random, dbPath: String) {
       i += 1
     }
     java.util.Arrays.sort(result, 0, result.length, ord)
-    result
-  }
-
-  private def reinitialize(): Unit = {
-    nItems = 0
-    roots.clear()
-    atomicIndex.set(0)
+    result.map { case (i, distance) =>
+      (helper.getMetadata(i), distance)
+    }
   }
 
 }

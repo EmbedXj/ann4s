@@ -122,12 +122,25 @@ object AnnoyIndexTest {
         (0 until 1000) foreach { i =>
           val v = Array.fill(f)(r.nextGaussian().toFloat)
           a.addItem(i, v)
-          b.addItem(s"$i", v, s"$i")
+          b.addItem(s"$i", v, s"metadata $i")
         }
         a.build(1)
+        a.save("annoy-index")
         b.build(1)
+
+        val v = Array.fill(f)(r.nextGaussian().toFloat)
+        println(a.getNnsByVector(v, 10, 100).toSeq)
+        println(b.getNnsByVector(v, 10, 100).toSeq)
       }
     }
 
+    val v = Array.fill(f)(r.nextGaussian().toFloat)
+    AnnoyIndex.withAnnoy(f, "angular") { a =>
+      RocksDBHelper.using(new ann4s.AnnoyIndex(f, ann4s.Angular, ann4s.FixRandom, "db")) { b =>
+        a.load("annoy-index")
+        println(a.getNnsByVector(v, 10, 100).toSeq)
+        println(b.getNnsByVector(v, 10, 100).toSeq)
+      }
+    }
   }
 }
