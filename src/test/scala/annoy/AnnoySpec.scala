@@ -1,36 +1,25 @@
 package annoy
 
-import java.io.FileWriter
-
-import annoy.profiling.AnnoyDataset
 import org.scalatest.{FlatSpec, Matchers}
+
 
 class AnnoySpec extends FlatSpec with Matchers {
 
-  import AnnoyDataset._
-
-  val f = dataset.head.length
-  val i = new AnnoyIndex(f, FixRandom, "db")
-  dataset.zipWithIndex.foreach { case (v, j) =>
-    i.addItem(j.toString, v, "metadata")
-  }
-
-  elapsed("building") {
-    i.build(10)
-  }
-
-  elapsed(s"qurery") {
-//    (0 until 100).foreach { _ =>
-      dataset.zipWithIndex.foreach { case (_, j) =>
-        val o = i.getNnsByVector(dataset(j), 3)
-        print(o.toSeq.map(_._1) + " ")
-        println(trueNns(j).toSeq)
-//        o.map(_._1) shouldBe trueNns(j)
-//      }
+  "Default" should "work" in {
+    val f = 10
+    val r = new scala.util.Random(0)
+    val annoy = new AnnoyIndex(f, FixRandom, "db")
+    (0 until 1000) foreach { i =>
+      val w = Array.fill(f)(r.nextGaussian().toFloat)
+      annoy.addItem(s"$i", w, s"""{"id": $i}""")
     }
+    // ({"id": 739},0.4293379) ({"id": 510},0.6454089) ({"id": 279},0.66716933) ({"id": 68},0.66854465) ({"id": 130},0.73778325) ({"id": 799},0.7584828) ({"id": 8},0.7848469) ({"id": 733},0.8100814) ({"id": 554},0.81120265) ({"id": 394},0.8204029)
+//    annoy.cleanupTrees()
+    annoy.addTrees(10)
+    val w = Array.fill(f)(r.nextGaussian().toFloat)
+    println(annoy.query(w, 10).mkString(" "))
+    annoy.close()
   }
-
-  i.close()
 
 }
 

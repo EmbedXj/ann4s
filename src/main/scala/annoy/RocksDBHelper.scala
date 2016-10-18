@@ -28,7 +28,7 @@ class RocksDBHelper(dbPath: String) {
 
   RocksDB.loadLibrary()
 
-  val logPath = "/tmp/ann4s/logs"
+  private val logPath = "/tmp/annoy/logs"
 
   private val writeBufferSize = 1024 * 1024 * 512
 
@@ -46,7 +46,9 @@ class RocksDBHelper(dbPath: String) {
 
   private val writeOptions = new WriteOptions()
 
-  private val numItemsKey = "numItems".getBytes
+  private val lastAtomicIndexKey = "lastAtomicIndex".getBytes
+
+  private val lastAtomicNodeIndexKey = "lastAtomicNodeIndex".getBytes
 
   private val columnFamilies = Seq(
     //default
@@ -68,6 +70,15 @@ class RocksDBHelper(dbPath: String) {
       new ColumnFamilyDescriptor(name.getBytes, new ColumnFamilyOptions().setWriteBufferSize(writeBufferSize).setArenaBlockSize(arenaBlockSize))
   }
 
+  initializeDB()
+
+  private val (db, handles) = openDB()
+  private val defaultHandle = handles("default")
+  private val itemHandle = handles("item")
+  private val metadataHandle = handles("metadata")
+  private val idmapHandle = handles("idmap")
+  private var nodeHandle = handles("node")
+
   def initializeDB(): Unit = {
     if (! new File(dbPath).exists()) {
       println("initializing db ...")
@@ -79,7 +90,8 @@ class RocksDBHelper(dbPath: String) {
             using(db.createColumnFamily(d)) { _ => }
           }
         using(db.getDefaultColumnFamily) { handle =>
-          db.put(handle, numItemsKey, Bytes.int2bytes(0))
+          db.put(handle, lastAtomicIndexKey, Bytes.int2bytes(0))
+          db.put(handle, lastAtomicNodeIndexKey, Bytes.int2bytes(0))
         }
         println("done")
       }
@@ -92,27 +104,29 @@ class RocksDBHelper(dbPath: String) {
     (db, columnFamilyDescriptors.zip(handles).map { case (key, value) => (new String(key.columnFamilyName()), value) }.toMap)
   }
 
-  def getNumItems: Int = {
-    Bytes.bytes2int(db.get(handles("default"), numItemsKey), 0)
+  def getLastAtomicIndex: Int = {
+    Bytes.bytes2int(db.get(defaultHandle, lastAtomicIndexKey), 0)
   }
 
-  def mergeNumItems(numItem: Int): Unit = {
-    db.merge(handles("default"), numItemsKey, Bytes.int2bytes(numItem))
+  def getLastAtomicNodeIndex: Int = {
+    Bytes.bytes2int(db.get(defaultHandle, lastAtomicNodeIndexKey), 0)
   }
 
-  private def usingBatch(block: WriteBatch => Unit): Unit = {
-    using(new WriteBatch) { batch =>
-      block(batch)
-      db.write(writeOptions, batch)
-    }
+  def putLastAtomicNodeIndex(lastAtomicNodeIndex: Int): Unit = {
+    db.put(defaultHandle, writeOptions, lastAtomicNodeIndexKey, Bytes.int2bytes(lastAtomicNodeIndex))
+  }
+
+  def mergeLastAtomicNodeIndex(atomicNodeIndex: Int): Int = {
+    db.merge(defaultHandle, writeOptions, lastAtomicNodeIndexKey, Bytes.int2bytes(atomicNodeIndex))
+    getLastAtomicNodeIndex
   }
 
   def exists(id: String): Boolean = {
-    db.get(handles("idmap"), id.getBytes) != null
+    db.get(idmapHandle, id.getBytes) != null
   }
 
   def getAtomicIndex(id: String): Int = {
-    val bytes = db.get(handles("idmap"), id.getBytes)
+    val bytes = db.get(idmapHandle, id.getBytes)
     if (bytes == null) {
       -1
     } else {
@@ -121,27 +135,26 @@ class RocksDBHelper(dbPath: String) {
   }
 
   def putAll(id: String, atomicIndex: Int, feat: Array[Float], metadata: String): Unit = {
-    usingBatch { batch =>
-      println(s"id: $id, atomicIndex: $atomicIndex, feat: $feat, metadata: $metadata")
-      val atomicIndexBytes = Bytes.int2bytes(atomicIndex)
-      batch.merge(handles("default"), numItemsKey, Bytes.int2bytes(atomicIndex + 1))
-      batch.put(handles("idmap"), id.getBytes, atomicIndexBytes)
-      batch.put(handles("item"), atomicIndexBytes, Bytes.floats2bytes(feat))
-      batch.put(handles("metadata"), atomicIndexBytes, metadata.getBytes)
-    }
+    val batch = new WriteBatch()
+    val atomicIndexBytes = Bytes.int2bytes(atomicIndex)
+    batch.merge(defaultHandle, lastAtomicIndexKey, Bytes.int2bytes(atomicIndex + 1))
+    batch.put(idmapHandle, id.getBytes, atomicIndexBytes)
+    batch.put(itemHandle, atomicIndexBytes, Bytes.floats2bytes(feat))
+    batch.put(metadataHandle, atomicIndexBytes, metadata.getBytes)
+    db.write(writeOptions, batch)
   }
 
   def getMetadata(atomicIndex: Int): String = {
-    new String(db.get(handles("metadata"), readOptions, Bytes.int2bytes(atomicIndex)))
+    new String(db.get(metadataHandle, readOptions, Bytes.int2bytes(atomicIndex)))
   }
 
   def putRoot(atomicNodeIndex: Int): Unit = {
-    db.put(handles("node"), writeOptions, f"root_$atomicNodeIndex%010d".getBytes, Bytes.int2bytes(atomicNodeIndex))
+    db.put(nodeHandle, writeOptions, f"root_$atomicNodeIndex%010d".getBytes, Bytes.int2bytes(atomicNodeIndex))
   }
 
   def getRoots: ArrayBuffer[Int] = {
     val roots = new ArrayBuffer[Int]()
-    val iter = db.newIterator(handles("node"))
+    val iter = db.newIterator(nodeHandle)
     iter.seek(f"root_${0}%010d".getBytes())
     var i = 0
     while (iter.isValid && i < Int.MaxValue) {
@@ -155,7 +168,7 @@ class RocksDBHelper(dbPath: String) {
   }
 
   def getNode(i: Int, dim: Int): (Array[Int], Array[Float]) = {
-    val node = db.get(handles("node"), readOptions, Bytes.int2bytes(i))
+    val node = db.get(nodeHandle, readOptions, Bytes.int2bytes(i))
     if (node(0) == 'l') {
       (Bytes.bytes2ints(node, 1, -1), null)
     } else if (node(0) == 'h') {
@@ -166,30 +179,38 @@ class RocksDBHelper(dbPath: String) {
   }
 
   def putLeafNode(atomicNodeIndex: Int, children: Array[Int]): Unit = {
-    db.put(handles("node"), writeOptions, Bytes.int2bytes(atomicNodeIndex), Array[Byte]('l') ++ Bytes.ints2bytes(children))
+    val batch = new WriteBatch()
+    batch.put(nodeHandle, Bytes.int2bytes(atomicNodeIndex), Array[Byte]('l') ++ Bytes.ints2bytes(children))
+    batch.merge(defaultHandle, lastAtomicNodeIndexKey, Bytes.int2bytes(atomicNodeIndex))
+    db.write(writeOptions, batch)
   }
 
   def putHyperplaneNode(atomicNodeIndex: Int, children: Array[Int], hyperplane: Array[Float]) = {
-    db.put(handles("node"), writeOptions, Bytes.int2bytes(atomicNodeIndex), Array[Byte]('h') ++ Bytes.ints2bytes(children) ++ Bytes.floats2bytes(hyperplane))
+    val batch = new WriteBatch()
+    batch.put(nodeHandle, Bytes.int2bytes(atomicNodeIndex), Array[Byte]('h') ++ Bytes.ints2bytes(children) ++ Bytes.floats2bytes(hyperplane))
+    batch.merge(defaultHandle, lastAtomicNodeIndexKey, Bytes.int2bytes(atomicNodeIndex))
+    db.write(writeOptions, batch)
   }
 
   def getFeat(i: Int, feat: Array[Float]): Array[Float] = {
-    val bytes = db.get(handles("item"), readOptions, Bytes.int2bytes(i))
+    val bytes = db.get(itemHandle, readOptions, Bytes.int2bytes(i))
     Bytes.bytes2floats(bytes, 0, feat)
   }
 
   def getFeat(i: Int, dim: Int): Array[Float] = {
-    val bytes = db.get(handles("item"), readOptions, Bytes.int2bytes(i))
+    val bytes = db.get(itemHandle, readOptions, Bytes.int2bytes(i))
     Bytes.bytes2floats(bytes, 0, dim)
+  }
+
+  def cleanupNodes(): Unit = {
+    db.dropColumnFamily(nodeHandle)
+    nodeHandle = db.createColumnFamily(
+      new ColumnFamilyDescriptor("node".getBytes, new ColumnFamilyOptions().setWriteBufferSize(writeBufferSize).setArenaBlockSize(arenaBlockSize)))
   }
 
   def close(): Unit = {
     handles.foreach(_._2.close())
     db.close()
   }
-
-  initializeDB()
-
-  val (db, handles) = openDB()
 
 }

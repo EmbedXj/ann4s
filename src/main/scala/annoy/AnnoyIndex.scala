@@ -19,25 +19,25 @@ class AnnoyIndex(dim: Int, metric: Metric, random: Random, dbPath: String) {
 
   private val roots = helper.getRoots
 
-  private val atomicIndex = new AtomicInteger(helper.getNumItems)
+  private val atomicIndex = new AtomicInteger(helper.getLastAtomicIndex)
 
-  private val atomicNodeIndex = new AtomicInteger()
+  private val atomicNodeIndex = new AtomicInteger(helper.getLastAtomicNodeIndex)
 
   private var nItems = atomicIndex.get()
 
   println(s"current atomicIndex: $atomicIndex")
-
-  def getDim: Int = dim
+  println(s"current atomicNodeIndex: $atomicNodeIndex")
 
   def addItem(id: String, w: Array[Float], metadata: String): Unit = {
-    if (!helper.exists(id))
+    if (!helper.exists(id)) {
       helper.putAll(id, atomicIndex.getAndIncrement(), w, metadata)
+    }
   }
 
-  def build(q: Int): Unit = {
+  def addTrees(q: Int): Unit = {
     require(q > 0)
-    nItems = helper.getNumItems
-    atomicNodeIndex.set(nItems)
+    nItems = helper.getLastAtomicIndex
+    atomicNodeIndex.set(helper.mergeLastAtomicNodeIndex(nItems))
 
     val indices = new ArrayBuffer[Int] ++= (0 until nItems)
 
@@ -47,6 +47,15 @@ class AnnoyIndex(dim: Int, metric: Metric, random: Random, dbPath: String) {
       roots += root
       println(s"pass ${roots.size}...")
     }
+  }
+
+  def cleanupTrees(): Unit = {
+    roots.clear()
+    helper.putLastAtomicNodeIndex(helper.getLastAtomicIndex)
+    helper.cleanupNodes()
+    atomicNodeIndex.set(helper.getLastAtomicNodeIndex)
+    println(s"cleanup: current atomicIndex: $atomicIndex")
+    println(s"cleanup: current atomicNodeIndex: $atomicNodeIndex")
   }
 
   private def makeTree(indices: ArrayBuffer[Int]): Int = {
@@ -100,11 +109,11 @@ class AnnoyIndex(dim: Int, metric: Metric, random: Random, dbPath: String) {
     println("closed")
   }
 
-  def getNItems: Int = helper.getNumItems
+  def getNItems: Int = helper.getLastAtomicIndex
 
-  def getNnsByVector(w: Array[Float], n: Int): Array[(String, Float)] = getNnsByVector(w, n, -1)
+  def query(w: Array[Float], n: Int): Array[(String, Float)] = query(w, n, -1)
 
-  def getNnsByVector(w: Array[Float], n: Int, k: Int): Array[(String, Float)] = getAllNns(w, n, k)
+  def query(w: Array[Float], n: Int, k: Int): Array[(String, Float)] = getAllNns(w, n, k)
 
   val ord = new Ordering[(Int, Float)]{
     def compare(x: (Int, Float), y: (Int, Float)): Int = {
