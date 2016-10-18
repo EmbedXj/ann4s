@@ -23,7 +23,6 @@ object RocksDBHelper {
 
 class RocksDBHelper(dbPath: String) {
 
-
   import RocksDBHelper._
 
   RocksDB.loadLibrary()

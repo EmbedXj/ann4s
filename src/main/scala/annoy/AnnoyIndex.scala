@@ -4,6 +4,9 @@ import java.util.concurrent.atomic.AtomicInteger
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
+import scala.concurrent.duration.Duration
+import scala.concurrent.{Await, Future}
+import scala.concurrent.ExecutionContext.Implicits.global
 
 class AnnoyIndex(dim: Int, metric: Metric, random: Random, dbPath: String) {
 
@@ -41,12 +44,15 @@ class AnnoyIndex(dim: Int, metric: Metric, random: Random, dbPath: String) {
 
     val indices = new ArrayBuffer[Int] ++= (0 until nItems)
 
-    (0 until q) foreach { _ =>
-      val root = makeTree(indices)
-      helper.putRoot(root)
-      roots += root
-      println(s"pass ${roots.size}...")
+    val futures = (0 until q).map { i =>
+      Future {
+        val root = makeTree(indices)
+        helper.putRoot(root)
+        println(s"pass ${roots.size + i}...")
+        root
+      }
     }
+    roots ++= Await.result(Future.sequence(futures), Duration.Inf)
   }
 
   def cleanupTrees(): Unit = {
