@@ -44,7 +44,14 @@ class AnnoyIndex(dim: Int, metric: Metric, random: Random, dbPath: String) {
     nItems = helper.getNumItems
     atomicNodeIndex.set(nItems)
 
+    (0 until nItems) foreach { i =>
+      val feat = helper.getFeat(i, dim)
+      println(s"s-item: ${feat.map(x => f"$x%.2f").mkString(" ")} ")
+    }
+
+
     val indices = new ArrayBuffer[Int] ++= (0 until nItems)
+    println(s"s-indicies: ${indices.mkString(" ")} ")
 
     (0 until q) foreach { _ =>
       val root = makeTree(indices)
@@ -55,16 +62,22 @@ class AnnoyIndex(dim: Int, metric: Metric, random: Random, dbPath: String) {
   }
 
   private def makeTree(indices: ArrayBuffer[Int]): Int = {
-    if (indices.length == 1)
+    if (indices.length == 1) {
+      println(s"s-case A: ${indices(0)}")
       return indices(0)
+    }
 
     if (indices.length <= childrenCapacity) {
       val newNodeIndex = atomicNodeIndex.getAndIncrement()
       helper.putLeafNode(newNodeIndex, indices.toArray)
+      println(s"s-case B: ${indices.mkString(" ")}")
       return newNodeIndex
     }
 
+    println(s"s-hyperplane: (${indices.length}) ${indices.mkString(" ")} ")
     val hyperplane = metric.createSplit(indices, dim, random, helper)
+
+    println(s"s-hyperplane: ${hyperplane.map(x => f"$x%.2f").mkString(" ")} ")
 
     val childrenIndices = Array.fill(2) {
       new ArrayBuffer[Int](indices.length)
@@ -73,6 +86,7 @@ class AnnoyIndex(dim: Int, metric: Metric, random: Random, dbPath: String) {
     val vectorBuffer = new Array[Float](dim)
     indices.foreach { case i =>
       val side = if (metric.side(hyperplane, helper.getFeat(i, vectorBuffer), random)) 1 else 0
+      println(s"s-side $side $i")
       childrenIndices(side) += i
     }
 

@@ -145,11 +145,11 @@ class RocksDBHelper(dbPath: String) {
   }
 
   def putLeafNode(atomicNodeIndex: Int, children: Array[Int]): Unit = {
-    db.put(handles("node"), writeOptions, Bytes.int2bytes(atomicNodeIndex), Array[Byte]('l') ++ Bytes.ints2bytes(children))
+//    db.put(handles("node"), writeOptions, Bytes.int2bytes(atomicNodeIndex), Array[Byte]('l') ++ Bytes.ints2bytes(children))
   }
 
   def putHyperplaneNode(atomicNodeIndex: Int, children: Array[Int], hyperplane: Array[Float]) = {
-    db.put(handles("node"), writeOptions, Bytes.int2bytes(atomicNodeIndex), Array[Byte]('h') ++ Bytes.ints2bytes(children) ++ Bytes.floats2bytes(hyperplane))
+//    db.put(handles("node"), writeOptions, Bytes.int2bytes(atomicNodeIndex), Array[Byte]('h') ++ Bytes.ints2bytes(children) ++ Bytes.floats2bytes(hyperplane))
   }
 
   def getFeat(i: Int, feat: Array[Float]): Array[Float] = {
