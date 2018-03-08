@@ -1,13 +1,13 @@
-//package ann4s.spark
+//package ann4s.spark.distributed
 //
 //import ann4s.Random
-//import org.apache.spark.rdd.RDD
-//import org.apache.spark.sql.{DataFrame, Row, SQLContext}
+//import ann4s.spark.LocalSparkContext
+//import org.apache.spark.sql.SQLContext
 //import org.scalatest.{FlatSpec, Matchers}
 //
-//class AnnoySparkSpec extends FlatSpec with Matchers with LocalSparkContext {
+//class AnnoyDistSpec extends FlatSpec with Matchers with LocalSparkContext {
 //
-//  import ann4s.profiling.AnnoyDataset.{dataset => features, trueNns}
+//  import ann4s.profiling.AnnoyDataset.{dataset => features}
 //
 //  object FixRandom extends Random {
 //    val rnd = new scala.util.Random(0)
@@ -17,13 +17,15 @@
 //
 //  "Spark DataFrame-API" should "work" in {
 //    val sqlContext = new SQLContext(sc)
-//    import sqlContext.implicits._
 //
 //    val idCol = "id"
 //    val featuresCol = "features"
 //    val neighborCol = "neighbor"
 //    val dimension = features.head.length
 //
+//
+//
+//    /*
 //    val rdd: RDD[(Int, Array[Float])] =
 //      sc.parallelize(features.zipWithIndex.map(_.swap))
 //
@@ -62,6 +64,7 @@
 //      .foreach { case (id, nns) =>
 //        nns.toSeq.intersect(trueNns(id)).length should be >= 2
 //      }
+//      */
 //  }
 //
 //}
