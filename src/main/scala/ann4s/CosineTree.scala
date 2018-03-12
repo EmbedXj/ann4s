@@ -33,7 +33,7 @@ object CosineTree {
     (p, q)
   }
 
-  def createSplit[Q](sample: Array[CompactVector]): CompactVector = {
+  def createSplit(sample: Array[CompactVector]): CompactVector = {
     val (p, q) = twoMeans(sample)
     var z = 0
     while (z < p.length) {
@@ -45,19 +45,23 @@ object CosineTree {
 }
 
 class CosineTree(f: Int, count: Long, numItemsInLeaf: Int, sampleSize: Int, sampleTolerance: Double) extends Serializable {
-  def printLeaves() = {
-    println("print leaves")
-    countByLeaf.toSeq.sortBy(_._1).foreach(println)
+
+  def info() = {
+    val maxChildren = countByLeaf.toSeq.maxBy(_._2)
+    println(s"num leaves ${countByLeaf.size}, $maxChildren")
   }
 
   assert (sampleTolerance > 0 && sampleTolerance < 1)
 
   var done = false
 
-  def finished(): Boolean = done
+  var numSplits: Int = 0
+
+  def finished(): Boolean = done || numSplits > 29 // 29 for Int.MaxValue
 
   val tree: mutable.Map[Int, CompactVector] = mutable.Map.empty[Int, CompactVector]
 
+  // leaf id increases as 2^{0} + 2^{1} + ... + 2^{numSplits}
   var countByLeaf: Map[Int, Long] = Map(0 -> count)
 
   def sample(cv: CompactVector): Option[(Int, CompactVector)] = {
@@ -75,11 +79,14 @@ class CosineTree(f: Int, count: Long, numItemsInLeaf: Int, sampleSize: Int, samp
     }
   }
 
+  def needSplitMore(subtreeId: Int): Boolean = {
+    countByLeaf(subtreeId) > numItemsInLeaf
+  }
+
   def createSplit(sampleByLeaf: Map[Int, Array[CompactVector]]): Boolean = {
     var exactCountRequired = false
     val newCountByLeaf = mutable.Map[Int, Long]()
     if (sampleByLeaf.isEmpty) {
-      println("No samples")
       done = true
     } else {
       sampleByLeaf.toSeq.sortBy(_._1) foreach { case (leaf, samples) =>
@@ -88,15 +95,16 @@ class CosineTree(f: Int, count: Long, numItemsInLeaf: Int, sampleSize: Int, samp
         newCountByLeaf += ((leaf << 1) + 2) -> (countByLeaf(leaf) / 2)
 
         if (samples.length < (sampleSize * (1 - sampleTolerance))) {
-          println(s"leaf $leaf : ${samples.length} - not updated")
+          assert(false)
           exactCountRequired = true
         } else {
-          println(s"leaf $leaf : ${samples.length}")
           val hyperplane = CosineTree.createSplit(samples)
           tree += leaf -> hyperplane
         }
       }
     }
+
+    numSplits += 1
 
     countByLeaf = newCountByLeaf.toMap
     exactCountRequired
@@ -139,4 +147,23 @@ class CosineTree(f: Int, count: Long, numItemsInLeaf: Int, sampleSize: Int, samp
     countByLeaf = count
   }
 
+  def printTree(): Unit = {
+    if (tree.contains(0))
+      print(0, 0)
+  }
+
+  def print(root: Int, depth: Int): Unit = {
+    println("        " * depth + f"${(root - 1)/2}%5d:$root%-5d")
+    val l = (root << 1) + 1
+    val r = (root << 1) + 2
+    if (tree.contains(l)) {
+      print(l, depth + 1)
+    }
+    if (tree.contains(r)) {
+      print(r, depth + 1)
+    }
+  }
+
 }
+
+

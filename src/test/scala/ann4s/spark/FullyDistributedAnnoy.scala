@@ -22,15 +22,11 @@ object FullyDistributedAnnoy {
     val data = spark.read.parquet("dataset/train").as[CompactVector].cache()
     val count = data.count()
 
-    val tree = new CosineTree(25, count, 1000, 200, 0.2)
+    val tree = new CosineTree(25, count, 10000, 200, 0.2)
 
     while (!tree.finished()) {
-      println("updating")
-      tree.printLeaves()
-      if (tree.createSplit(data.flatMap(tree.sample).collect().groupBy(_._1).mapValues(_.map(_._2)))) {
-        println("exact counting")
-        tree.updateExactCountByLeaf(data.groupByKey(tree.traverse).count().collect().toMap)
-      }
+      tree.createSplit(data.flatMap(tree.sample).collect().groupBy(_._1).mapValues(_.map(_._2)))
+      tree.updateExactCountByLeaf(data.groupByKey(tree.traverse).count().collect().toMap)
     }
 
     data.unpersist()
