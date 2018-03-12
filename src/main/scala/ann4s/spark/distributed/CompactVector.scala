@@ -1,16 +1,14 @@
 package ann4s.spark.distributed
 
-case class CompactVector(data: Array[Byte], w: Float, b: Float) {
+case class CompactVector(data: Array[Byte], w: Float, b: Float, revNrm2: Float, table: BigInt) {
 
   def d: Int = data.length
 
-  def recon(): Array[Float] = {
-    val dst = new Array[Float](data.length)
-    recon(dst)
-    dst
-  }
+  def unitVector(): Array[Float] = Array.tabulate(data.length)(getUnitFloat)
 
-  def recon(dst: Array[Float]): Unit = {
+  def vector(): Array[Float] = Array.tabulate(data.length)(getFloat)
+
+  def copyVectorTo(dst: Array[Float]): Unit = {
     var i = 0
     while (i < data.length) {
       dst(i) = getFloat(i)
@@ -29,10 +27,24 @@ case class CompactVector(data: Array[Byte], w: Float, b: Float) {
     math.sqrt(err).toFloat
   }
 
+  def cosineDistance(unitVector: Array[Float]): Float = {
+    assert(data.length == unitVector.length)
+    var i = 0
+    var dot = 0f
+    while (i < data.length) {
+      dot += getUnitFloat(i) * unitVector(i)
+      i += 1
+    }
+    2 - 2 * dot
+  }
+
   def getFloat(i: Int): Float = {
     data(i).toFloat * w + b
   }
 
+  def getUnitFloat(i: Int): Float = {
+    getFloat(i) * revNrm2
+  }
 }
 
 object CompactVector {
@@ -91,7 +103,7 @@ object CompactVector {
       data(i) = q.toByte
       i += 1
     }
-    CompactVector(data, 1/w, -b/w)
+    CompactVector(data, 1 / w, -b / w, 1 / n, BigInt(0))
   }
 
 }
