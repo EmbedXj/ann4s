@@ -3,7 +3,48 @@ package ann4s
 import scala.collection.mutable
 import scala.util.Random
 
-class CosineTree(count: Long, numItemsInLeaf: Int, sampleSize: Int, sampleTolerance: Double) extends Serializable {
+object CosineTree {
+
+  def twoMeans(samples: Array[CompactVector]): (Array[Float], Array[Float]) = {
+    val p = samples(0).unitVector()
+    val q = samples(1).unitVector()
+    var ic = 1
+    var jc = 1
+
+    samples.drop(2).foreach { r =>
+      val di = ic * r.cosineDistance(p)
+      val dj = jc * r.cosineDistance(q)
+      if (di < dj) {
+        var z = 0
+        while (z < p.length) {
+          p(z) = (p(z) * ic + r.unit(z)) / (ic + 1)
+          z += 1
+        }
+        ic += 1
+      } else if (dj < di) {
+        var z = 0
+        while (z < q.length) {
+          q(z) = (q(z) * jc + r.unit(z)) / (jc + 1)
+          z += 1
+        }
+        jc += 1
+      }
+    }
+    (p, q)
+  }
+
+  def createSplit[Q](sample: Array[CompactVector]): CompactVector = {
+    val (p, q) = twoMeans(sample)
+    var z = 0
+    while (z < p.length) {
+      p(z) -= q(z)
+      z += 1
+    }
+    CompactVector(p, toUnit = true)
+  }
+}
+
+class CosineTree(f: Int, count: Long, numItemsInLeaf: Int, sampleSize: Int, sampleTolerance: Double) extends Serializable {
   def printLeaves() = {
     println("print leaves")
     countByLeaf.toSeq.sortBy(_._1).foreach(println)
@@ -51,38 +92,8 @@ class CosineTree(count: Long, numItemsInLeaf: Int, sampleSize: Int, sampleTolera
           exactCountRequired = true
         } else {
           println(s"leaf $leaf : ${samples.length}")
-          // twoMeans
-          val p = samples(0).unitVector()
-          val q = samples(1).unitVector()
-          var ic = 1
-          var jc = 1
-          samples.drop(2).foreach { r =>
-            val di = ic * r.cosineDistance(p, 1)
-            val dj = jc * r.cosineDistance(q, 1)
-
-            if (di < dj) {
-              var z = 0
-              while (z < p.length) {
-                p(z) = (p(z) * ic + r.unit(z)) / (ic + 1)
-                z += 1
-              }
-              ic += 1
-            } else if (dj < di) {
-              var z = 0
-              while (z < q.length) {
-                q(z) = (q(z) * jc + r.unit(z)) / (jc + 1)
-                z += 1
-              }
-              jc += 1
-            }
-          }
-          // create split
-          var z = 0
-          while (z < p.length) {
-            p(z) -= q(z)
-            z += 1
-          }
-          tree += leaf -> CompactVector(p, toUnit = true)
+          val hyperplane = CosineTree.createSplit(samples)
+          tree += leaf -> hyperplane
         }
       }
     }

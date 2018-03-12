@@ -19,7 +19,7 @@ object PrepareDataset {
 
     import spark.implicits._
 
-    val d = 256
+    val d = 25
     val data = new Array[Byte](d * 4)
     val ar = new Array[Float](d)
 

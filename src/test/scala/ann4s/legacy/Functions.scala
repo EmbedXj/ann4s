@@ -37,7 +37,7 @@ object Functions {
 
     val i = rand.index(count)
     var j = rand.index(count - 1)
-    j += (if (j >= i) 1 else 0)
+    // j += (if (j >= i) 1 else 0) // remove for debugging
     nodes(i).getVector(iv)
     nodes(j).getVector(jv)
 
@@ -55,6 +55,7 @@ object Functions {
       val zz = nodes(k).getVector(vectorBuffer)
       val di = ic * metric.distance(iv, zz)
       val dj = jc * metric.distance(jv, zz)
+
       val norm = if (cosine) getNorm(zz) else One
       if (di < dj) {
         var z = 0

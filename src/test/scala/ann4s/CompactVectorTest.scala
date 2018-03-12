@@ -3,7 +3,7 @@ package ann4s
 import org.scalatest._
 import org.scalatest.Matchers._
 
-import scala.util.{Random => R}
+import scala.util.Random
 
 class CompactVectorTest extends FunSuite {
 
@@ -16,11 +16,11 @@ class CompactVectorTest extends FunSuite {
   }
 
   test("MSE of CompactVector is less than tolerance") {
-    val rnd = new R()
+    val rnd = new Random()
     val n = 100
     var d = 2
     while (d <= 2048) {
-      val tolerance = math.sqrt(1e-5 * d)
+      val tolerance = math.sqrt(CompactVector.Tolerance * d)
       var mse = 0.0
       0 until n foreach { _ =>
         val ar = Array.fill(d)(rnd.nextFloat())
@@ -34,22 +34,22 @@ class CompactVectorTest extends FunSuite {
   }
 
   test("Difference of Cosine Distance between CompactVector is less than torerance") {
-    val rnd = new R()
+    val rnd = new Random()
     val n = 100
     var d = 2
     while (d <= 2048) {
-      val tolerance = math.sqrt(1e-5 * d)
+      val tolerance = math.sqrt(CompactVector.Tolerance * d)
       var diff = 0.0
       0 until n foreach { _ =>
         val ar1 = Array.fill(d)(rnd.nextFloat())
         val ar2 = Array.fill(d)(rnd.nextFloat())
         val cv1 = CompactVector(ar1)
         val tr = 2 - 2 * cosine(ar1, ar2)
-        val ts = cv1.cosineDistance(ar2, nrm2(ar2))
+        val ts = cv1.cosineDistance(ar2)
         diff += math.abs(tr - ts)
       }
       diff /= n
-      diff should be (0.0 +- tolerance)
+      diff should be < tolerance
       d <<= 2
     }
   }

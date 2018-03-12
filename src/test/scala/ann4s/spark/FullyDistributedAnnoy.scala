@@ -22,7 +22,7 @@ object FullyDistributedAnnoy {
     val data = spark.read.parquet("dataset/train").as[CompactVector].cache()
     val count = data.count()
 
-    val tree = new CosineTree(count, 1000, 200, 0.2)
+    val tree = new CosineTree(25, count, 1000, 200, 0.2)
 
     while (!tree.finished()) {
       println("updating")
