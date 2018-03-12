@@ -1,4 +1,4 @@
-package ann4s
+package ann4s.legacy
 
 import java.io.RandomAccessFile
 import java.nio.ByteOrder

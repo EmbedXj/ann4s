@@ -1,4 +1,4 @@
-package ann4s
+package ann4s.legacy
 
 import java.nio.ByteBuffer
 

@@ -1,4 +1,4 @@
-package ann4s
+package ann4s.legacy
 
 import scala.collection.mutable.ArrayBuffer
 

@@ -1,4 +1,4 @@
-package ann4s
+package ann4s.legacy
 
 trait Random {
   def flip(): Boolean

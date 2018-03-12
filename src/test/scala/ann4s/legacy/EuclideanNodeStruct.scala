@@ -1,4 +1,4 @@
-package ann4s
+package ann4s.legacy
 
 /**
   * n_descendants: Int = 4
