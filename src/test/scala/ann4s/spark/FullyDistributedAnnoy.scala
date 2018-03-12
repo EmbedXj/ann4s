@@ -1,5 +1,6 @@
-package ann4s.spark.distributed
+package ann4s.spark
 
+import ann4s.{CompactVector, CosineTree}
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.sql.SparkSession
 
@@ -26,7 +27,7 @@ object FullyDistributedAnnoy {
     while (!tree.finished()) {
       println("updating")
       tree.printLeaves()
-      if (tree.update(data.flatMap(tree.sample).collect().groupBy(_._1).mapValues(_.map(_._2)))) {
+      if (tree.createSplit(data.flatMap(tree.sample).collect().groupBy(_._1).mapValues(_.map(_._2)))) {
         println("exact counting")
         tree.updateExactCountByLeaf(data.groupByKey(tree.traverse).count().collect().toMap)
       }

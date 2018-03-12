@@ -1,9 +1,9 @@
-package ann4s
+package ann4s.spark
 
 import java.io.FileInputStream
 import java.nio.{ByteBuffer, ByteOrder}
 
-import ann4s.spark.distributed.CompactVector
+import ann4s.CompactVector
 import org.apache.spark.sql.SparkSession
 
 import scala.collection.mutable.ArrayBuffer

@@ -1,49 +1,42 @@
-package ann4s.spark.distributed
+package ann4s
 
-case class CompactVector(data: Array[Byte], w: Float, b: Float, revNrm2: Float, table: BigInt) {
+case class CompactVector(data: Array[Byte], w: Float, b: Float, revNrm2: Float) {
 
   def d: Int = data.length
 
-  def unitVector(): Array[Float] = Array.tabulate(data.length)(getUnitFloat)
+  def unitVector(): Array[Float] = Array.tabulate(data.length)(unit)
 
-  def vector(): Array[Float] = Array.tabulate(data.length)(getFloat)
+  def vector(): Array[Float] = Array.tabulate(data.length)(apply)
 
-  def copyVectorTo(dst: Array[Float]): Unit = {
-    var i = 0
-    while (i < data.length) {
-      dst(i) = getFloat(i)
-      i += 1
-    }
-  }
-
-  def diff(ar: Array[Float]): Float = {
+  def euclideanDistance(ar: Array[Float]): Float = {
     assert(ar.length == data.length)
     var err = 0.0
     var i = 0
     while (i < data.length) {
-      err += math.pow(ar(i) - getFloat(i), 2)
+      val xmm = ar(i) - apply(i)
+      err += xmm * xmm
       i += 1
     }
     math.sqrt(err).toFloat
   }
 
-  def cosineDistance(unitVector: Array[Float]): Float = {
-    assert(data.length == unitVector.length)
+  def cosineDistance(v: Array[Float], nrm2: Float): Float = {
+    assert(data.length == v.length)
     var i = 0
     var dot = 0f
     while (i < data.length) {
-      dot += getUnitFloat(i) * unitVector(i)
+      dot += unit(i) * v(i) / nrm2
       i += 1
     }
     2 - 2 * dot
   }
 
-  def getFloat(i: Int): Float = {
+  def apply(i: Int): Float = {
     data(i).toFloat * w + b
   }
 
-  def getUnitFloat(i: Int): Float = {
-    getFloat(i) * revNrm2
+  def unit(i: Int): Float = {
+    apply(i) * revNrm2
   }
 }
 
@@ -66,13 +59,13 @@ object CompactVector {
     while (i < ar.length) {
       val x = ar(i) / nrm2
       if (x < l) l = x
-      else if (x > u) u = x
+      if (x > u) u = x
       i += 1
     }
     (l, u)
   }
 
-  def apply(ar: Array[Float]): CompactVector = {
+  def apply(ar: Array[Float], toUnit: Boolean = false): CompactVector = {
     // n = 2-norm of ar
     // l = lower bound of x / n
     // u = upper bound of x / n
@@ -90,20 +83,23 @@ object CompactVector {
     // x = q/w - b/w
     val n = getNrm2(ar)
     val (l, u) = getUnitMinMax(ar, n)
+    if (math.abs(l - u) < 1e-8) {
+      CompactVector(new Array[Byte](ar.length), 0, l, if (toUnit) 1 else 1 / n)
+    } else {
+      val w = 256 / (n * (u - l))
+      val b = -(256 * l) / (u - l) - 128
 
-    val w = 256 / (n * (u - l))
-    val b = - (256 * l) / (u - l) - 128
-
-    val data = new Array[Byte](ar.length)
-    var i = 0
-    while (i < ar.length) {
-      var q = math.round(w * ar(i) + b)
-      q = math.max(Byte.MinValue, q)
-      q = math.min(Byte.MaxValue, q)
-      data(i) = q.toByte
-      i += 1
+      val data = new Array[Byte](ar.length)
+      var i = 0
+      while (i < ar.length) {
+        var q = math.round(w * ar(i) + b)
+        q = math.max(Byte.MinValue, q)
+        q = math.min(Byte.MaxValue, q)
+        data(i) = q.toByte
+        i += 1
+      }
+      CompactVector(data, 1 / w, -b / w, if (toUnit) 1 else 1 / n)
     }
-    CompactVector(data, 1 / w, -b / w, 1 / n, BigInt(0))
   }
 
 }

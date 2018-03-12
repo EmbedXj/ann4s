@@ -1,4 +1,4 @@
-package ann4s.spark.distributed
+package ann4s
 
 import scala.collection.mutable
 import scala.util.Random
@@ -34,7 +34,7 @@ class CosineTree(count: Long, numItemsInLeaf: Int, sampleSize: Int, sampleTolera
     }
   }
 
-  def update(sampleByLeaf: Map[Int, Array[CompactVector]]): Boolean = {
+  def createSplit(sampleByLeaf: Map[Int, Array[CompactVector]]): Boolean = {
     var exactCountRequired = false
     val newCountByLeaf = mutable.Map[Int, Long]()
     if (sampleByLeaf.isEmpty) {
@@ -51,36 +51,38 @@ class CosineTree(count: Long, numItemsInLeaf: Int, sampleSize: Int, sampleTolera
           exactCountRequired = true
         } else {
           println(s"leaf $leaf : ${samples.length}")
+          // twoMeans
           val p = samples(0).unitVector()
           val q = samples(1).unitVector()
           var ic = 1
           var jc = 1
           samples.drop(2).foreach { r =>
-            val di = ic * r.cosineDistance(p)
-            val dj = jc * r.cosineDistance(q)
+            val di = ic * r.cosineDistance(p, 1)
+            val dj = jc * r.cosineDistance(q, 1)
 
             if (di < dj) {
               var z = 0
               while (z < p.length) {
-                p(z) = (p(z) * ic + r.getUnitFloat(z)) / (ic + 1)
+                p(z) = (p(z) * ic + r.unit(z)) / (ic + 1)
                 z += 1
               }
               ic += 1
             } else if (dj < di) {
               var z = 0
-              while (z < p.length) {
-                q(z) = (q(z) * jc + r.getUnitFloat(z)) / (jc + 1)
+              while (z < q.length) {
+                q(z) = (q(z) * jc + r.unit(z)) / (jc + 1)
                 z += 1
               }
               jc += 1
             }
           }
+          // create split
           var z = 0
           while (z < p.length) {
             p(z) -= q(z)
             z += 1
           }
-          tree += leaf -> CompactVector(p)
+          tree += leaf -> CompactVector(p, toUnit = true)
         }
       }
     }
@@ -89,16 +91,19 @@ class CosineTree(count: Long, numItemsInLeaf: Int, sampleSize: Int, sampleTolera
     exactCountRequired
   }
 
-  def side(m: CompactVector, n: CompactVector): Boolean = {
+  def margin(m: CompactVector, n: CompactVector): Float = {
     var dot = 0f
     val d = m.d
     var z = 0
-
     while (z < d) {
-      dot += m.getUnitFloat(z) * n.getFloat(z)
+      dot += m(z) * n(z)
       z += 1
     }
+    dot
+  }
 
+  def side(m: CompactVector, n: CompactVector): Boolean = {
+    val dot = margin(m, n)
     if (dot != 0)
       dot > 0
     else
