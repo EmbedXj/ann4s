@@ -3,12 +3,14 @@ package ann4s.spark
 import java.io.FileInputStream
 import java.nio.{ByteBuffer, ByteOrder}
 
-import ann4s.CompactVector
+import org.apache.spark.ml.linalg.{Vector, Vectors}
 import org.apache.spark.sql.SparkSession
 
 import scala.collection.mutable.ArrayBuffer
 
 object PrepareDataset {
+
+  case class DatasetWrapper(features: Vector)
 
   def main(args: Array[String]): Unit = {
     val spark = SparkSession
@@ -30,7 +32,8 @@ object PrepareDataset {
         println("run `dataset/download.sh` in shell first")
         throw ex
       }
-      val dataset = new ArrayBuffer[CompactVector]()
+
+      val dataset = new ArrayBuffer[DatasetWrapper]()
       var n = 0
       while (fis.read(data) == d * 4) {
         val bf = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
@@ -40,8 +43,8 @@ object PrepareDataset {
           i += 1
         }
 
-        val cv = CompactVector(ar)
-        dataset += cv
+        val cv = Vectors.dense(ar.map(_.toDouble))
+        dataset += DatasetWrapper(cv)
         n += 1
         if ((n % 10000) == 0)
           println(n)
@@ -51,7 +54,7 @@ object PrepareDataset {
       spark
         .sparkContext
         .parallelize(dataset)
-        .toDF()
+        .toDS
         .write
         .mode("overwrite")
         .parquet(s"dataset/$setName")

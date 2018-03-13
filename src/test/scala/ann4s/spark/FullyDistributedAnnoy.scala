@@ -1,7 +1,7 @@
 package ann4s.spark
 
-import ann4s.{CompactVector, CosineTree}
 import org.apache.log4j.{Level, Logger}
+import org.apache.spark.ml.nn.{ANN, ANNModel}
 import org.apache.spark.sql.SparkSession
 
 object FullyDistributedAnnoy {
@@ -10,6 +10,7 @@ object FullyDistributedAnnoy {
 
     Logger.getLogger("org").setLevel(Level.OFF)
     Logger.getLogger("akka").setLevel(Level.OFF)
+    Logger.getLogger("org.apache.spark.ml").setLevel(Level.DEBUG)
 
     val spark = SparkSession
       .builder
@@ -17,19 +18,21 @@ object FullyDistributedAnnoy {
       .appName("building index")
       .getOrCreate()
 
-    import spark.implicits._
+    val ann = new ANN()
+      .setFeaturesCol("features")
+      .setPredictionCol("leaf")
+      .setSteps(10)
+      .setL(100000)
+      .setSampleRate(0.1)
 
-    val data = spark.read.parquet("dataset/train").as[CompactVector].cache()
-    val count = data.count()
+    val data = spark.read.parquet("dataset/train")
 
-    val tree = new CosineTree(25, count, 10000, 200, 0.2)
+    val annModel = ann.fit(data)
 
-    while (!tree.finished()) {
-      tree.createSplit(data.flatMap(tree.sample).collect().groupBy(_._1).mapValues(_.map(_._2)))
-      tree.updateExactCountByLeaf(data.groupByKey(tree.traverse).count().collect().toMap)
-    }
+    annModel.write.overwrite().save("exp/ann")
 
-    data.unpersist()
+    val loaded = ANNModel.load("exp/ann")
+
     spark.stop()
   }
 
