@@ -67,19 +67,7 @@ object CosineTree {
     toUnitVector(p)
   }
 
-  def margin(m: Vector, n: Vector): Double = {
-    BLAS.dot(m, n)
-    /*
-    var dot = 0f
-    val d = m.size
-    var z = 0
-    while (z < d) {
-      dot += m(z) * n(z)
-      z += 1
-    }
-    dot
-    */
-  }
+  def margin(m: Vector, n: Vector): Double = BLAS.dot(m, n)
 
   def side(m: Vector, n: Vector): Boolean = {
     val dot = margin(m, n)
@@ -119,13 +107,11 @@ object CosineTree {
 
 }
 
-case class TreeNode(nodeId: Long, hyperplane: Vector)
-
-class TreeModel(tree: Map[Long, Vector]) extends Serializable {
+case class CosineTree(tree: Map[Long, Vector]) {
   def traverse(v: Vector): Long = CosineTree.traverse(tree, v)
 }
 
-class CosineTree(numItems: Long, steps: Int, l: Int, sampleRate: Double) extends Serializable {
+class CosineTreeBuilder(numItems: Long, steps: Int, l: Int, sampleRate: Double) extends Serializable {
 
   var done = numItems <= l
 
@@ -164,11 +150,7 @@ class CosineTree(numItems: Long, steps: Int, l: Int, sampleRate: Double) extends
 
   def traverse(cv: Vector): Long = CosineTree.traverse(tree, cv)
 
-  def result(): Array[TreeNode] = {
-    tree.map { case (k, v) =>
-      TreeNode(k, v)
-    }.toArray
-  }
+  def result(): CosineTree = CosineTree(tree.toMap)
 
   def printTree(): Unit = {
     if (tree.contains(0))

@@ -64,13 +64,13 @@ trait ANNModelParams extends Params {
 
 }
 
-class ANNModel private[ml] (override val uid: String, val tree: Array[TreeNode])
+class ANNModel private[ml] (override val uid: String, val forest: Array[CosineTree])
   extends Model[ANNModel] with ANNParams with ANNModelParams with MLWritable {
 
   setDefault(trainVal -> "train",  testVal -> "test", targetCol -> "target", idCol -> "id")
 
   override def copy(extra: ParamMap): ANNModel = {
-    copyValues(new ANNModel(uid, tree), extra)
+    copyValues(new ANNModel(uid, forest), extra)
   }
 
   def setFeaturesCol(value: String): this.type = set(featuresCol, value)
@@ -89,7 +89,7 @@ class ANNModel private[ml] (override val uid: String, val tree: Array[TreeNode])
 
     transformSchema(dataset.schema, logging = true)
 
-    val treeModel = new TreeModel(tree.map(x => x.nodeId -> x.hyperplane).toMap)
+    val treeModel = forest(0)
 
     val instances = dataset.select(col($(featuresCol)) as "point",
       col($(targetCol)) as "target", col($(idCol)) as "id").as[Data]
@@ -142,7 +142,7 @@ object ANNModel extends MLReadable[ANNModel] {
     override protected def saveImpl(path: String): Unit = {
       DefaultParamsWriter.saveMetadata(instance, path, sc)
       val dataPath = new Path(path, "data").toString
-      sparkSession.createDataFrame(instance.tree).repartition(1).write.parquet(dataPath)
+      sparkSession.createDataFrame(instance.forest).repartition(1).write.parquet(dataPath)
     }
   }
 
@@ -156,7 +156,7 @@ object ANNModel extends MLReadable[ANNModel] {
       import sparkSession.implicits._
       val metadata = DefaultParamsReader.loadMetadata(path, sc, className)
       val dataPath = new Path(path, "data").toString
-      val tree = sparkSession.read.parquet(dataPath).as[TreeNode].collect()
+      val tree = sparkSession.read.parquet(dataPath).as[CosineTree].collect()
       val model = new ANNModel(metadata.uid, tree)
       DefaultParamsReader.getAndSetParams(model, metadata)
       model
@@ -208,16 +208,16 @@ class ANN(override val uid: String)
     instr.logNamedValue("number of expected samples", numExpectedSamples)
 
     // algorithm
-    val random= new Random($(seed))
-    val tree = new CosineTree(count, $(steps), $(l), $(sampleRate))
+    val random = new Random($(seed))
+    val builder = new CosineTreeBuilder(count, $(steps), $(l), $(sampleRate))
 
-    while (!tree.finished()) {
+    while (!builder.finished()) {
       val samples = instances.sample(withReplacement = false, $(sampleRate), random.nextLong())
-      val grouped = samples.keyBy(tree.traverse).groupByKey().mapValues(_.toArray).toLocalIterator
-      tree.split(grouped, instr)
+      val grouped = samples.keyBy(builder.traverse).groupByKey().mapValues(_.toArray).toLocalIterator
+      builder.split(grouped, instr)
     }
 
-    val model = copyValues(new ANNModel(uid, tree.result()).setParent(this))
+    val model = copyValues(new ANNModel(uid, Array(builder.result())).setParent(this))
     instr.logSuccess(model)
     if (handlePersistence) {
       instances.unpersist()
