@@ -1,22 +1,25 @@
 package org.apache.spark.ml.nn
 
-import ann4s.{CompactVector, CosineTree}
 import org.apache.hadoop.fs.Path
 import org.apache.spark.ml._
-import org.apache.spark.ml.clustering.KMeans
-import org.apache.spark.ml.linalg.{Vector, VectorUDT}
+import org.apache.spark.ml.linalg.{Vector, VectorUDT, Vectors}
 import org.apache.spark.ml.param._
 import org.apache.spark.ml.param.shared._
 import org.apache.spark.ml.util._
-import org.apache.spark.sql.functions.{col, udf}
+import org.apache.spark.sql.functions.col
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.{DataFrame, Dataset, Row}
 import org.apache.spark.storage.StorageLevel
+import org.apache.spark.util.BoundedPriorityQueue
 
 import scala.util.Random
 
+case class NN(id: Int, neighbors: Array[Int], distances: Array[Double])
+
+case class Data(point: Vector, target: String, id: Int)
+
 trait ANNParams extends Params with HasFeaturesCol
-  with HasSeed with HasPredictionCol {
+  with HasSeed {
 
   final val steps = new IntParam(this, "steps", "The number of steps" +
     "Must be > 0 and < 30.", ParamValidators.inRange(1, 29))
@@ -33,12 +36,38 @@ trait ANNParams extends Params with HasFeaturesCol
 
   protected def validateAndTransformSchema(schema: StructType): StructType = {
     SchemaUtils.checkColumnType(schema, $(featuresCol), new VectorUDT)
-    SchemaUtils.appendColumn(schema, $(predictionCol), IntegerType)
+    schema
   }
 }
 
-class ANNModel private[ml] (override val uid: String, val tree: Map[BigInt, CompactVector])
-  extends Model[ANNModel] with ANNParams with MLWritable {
+trait ANNModelParams extends Params {
+
+  final val trainVal: Param[String] = new Param[String](this, "trainVal", "train value")
+
+  def getTrainVal: String = $(trainVal)
+
+  final val testVal: Param[String] = new Param[String](this, "testVal", "test value")
+
+  def getTestVal: String = $(testVal)
+
+  final val targetCol: Param[String] = new Param[String](this, "targetCol", "target column name")
+
+  def getTargetCol: String = $(targetCol)
+
+  final val idCol: Param[String] = new Param[String](this, "idCol", "id column name")
+
+  def getIdCol: String = $(idCol)
+
+  final val k: Param[Int] = new IntParam(this, "k", "number of neighbors to query")
+
+  def getK: Int = $(k)
+
+}
+
+class ANNModel private[ml] (override val uid: String, val tree: Array[TreeNode])
+  extends Model[ANNModel] with ANNParams with ANNModelParams with MLWritable {
+
+  setDefault(trainVal -> "train",  testVal -> "test", targetCol -> "target", idCol -> "id")
 
   override def copy(extra: ParamMap): ANNModel = {
     copyValues(new ANNModel(uid, tree), extra)
@@ -46,19 +75,57 @@ class ANNModel private[ml] (override val uid: String, val tree: Map[BigInt, Comp
 
   def setFeaturesCol(value: String): this.type = set(featuresCol, value)
 
-  def setPredictionCol(value: String): this.type = set(predictionCol, value)
+  def setTargetCol(value: String): this.type = set(targetCol, value)
+
+  def setTrainVal(value: String): this.type = set(trainVal, value)
+
+  def setTestVal(value: String): this.type = set(testVal, value)
+
+  def setK(value: Int): this.type = set(k, value)
 
   override def transform(dataset: Dataset[_]): DataFrame = {
+    val sparkSession = dataset.sparkSession
+    import sparkSession.implicits._
+
     transformSchema(dataset.schema, logging = true)
-    val predictUDF = udf((vector: Vector) => predict(vector))
-    dataset.withColumn($(predictionCol), predictUDF(col($(featuresCol))))
+
+    val treeModel = new TreeModel(tree.map(x => x.nodeId -> x.hyperplane).toMap)
+
+    val instances = dataset.select(col($(featuresCol)) as "point",
+      col($(targetCol)) as "target", col($(idCol)) as "id").as[Data]
+
+    val targetTrain = $(trainVal)
+    val targetTest = $(testVal)
+    val _k = $(k)
+
+    val nns = instances.groupByKey(x => treeModel.traverse(x.point)).flatMapGroups { (_, it) =>
+      val all = it.toArray
+      val train = all.filter(_.target == targetTrain)
+      val test = all.filter(_.target == targetTest)
+      val trainWithNorm = train.map { t =>
+        t -> Vectors.norm(t.point, 2)
+      }
+
+      test.map { q =>
+        val pq = new BoundedPriorityQueue[(Int, Double)](_k)(Ordering.by(-_._2))
+        val nrm2 = Vectors.norm(q.point, 2)
+
+        trainWithNorm foreach { case (t, tnrm2) =>
+          val dist = CosineTree.cosineDistance(q.point, nrm2, t.point, tnrm2)
+          pq += t.id -> dist
+        }
+        val result = pq.toArray.sortBy(_._2)
+
+        NN(q.id, result.map(_._1), result.map(_._2))
+      }
+    }
+
+    nns.toDF()
   }
 
   override def transformSchema(schema: StructType): StructType = {
     validateAndTransformSchema(schema)
   }
-
-  private[nn] def predict(features: Vector): Int = ???
 
   override def write: MLWriter = new ANNModel.ANNModelWriter(this)
 
@@ -70,17 +137,12 @@ object ANNModel extends MLReadable[ANNModel] {
 
   override def load(path: String): ANNModel = super.load(path)
 
-  private case class Data(node: BigInt, hyperplane: CompactVector)
-
   private[ANNModel] class ANNModelWriter(instance: ANNModel) extends MLWriter {
 
     override protected def saveImpl(path: String): Unit = {
       DefaultParamsWriter.saveMetadata(instance, path, sc)
-      val data: Array[Data] = instance.tree.map { case (node, hyperplane) =>
-        Data(node, hyperplane)
-      }.toArray
       val dataPath = new Path(path, "data").toString
-      sparkSession.createDataFrame(data).repartition(1).write.parquet(dataPath)
+      sparkSession.createDataFrame(instance.tree).repartition(1).write.parquet(dataPath)
     }
   }
 
@@ -94,9 +156,7 @@ object ANNModel extends MLReadable[ANNModel] {
       import sparkSession.implicits._
       val metadata = DefaultParamsReader.loadMetadata(path, sc, className)
       val dataPath = new Path(path, "data").toString
-      val tree = sparkSession.read.parquet(dataPath).as[Data].collect().map {
-        case Data(nodeId, hyperplane) => nodeId -> hyperplane
-      }.toMap
+      val tree = sparkSession.read.parquet(dataPath).as[TreeNode].collect()
       val model = new ANNModel(metadata.uid, tree)
       DefaultParamsReader.getAndSetParams(model, metadata)
       model
@@ -107,15 +167,13 @@ object ANNModel extends MLReadable[ANNModel] {
 class ANN(override val uid: String)
   extends Estimator[ANNModel] with ANNParams with DefaultParamsWritable {
 
-  setDefault(steps -> 29, l -> 10000, sampleRate -> 0.1)
+  setDefault(steps -> 29, l -> 10000, sampleRate -> 0)
 
   override def copy(extra: ParamMap): ANN = defaultCopy(extra)
 
   def this() = this(Identifiable.randomUID("ann"))
 
   def setFeaturesCol(value: String): this.type = set(featuresCol, value)
-
-  def setPredictionCol(value: String): this.type = set(predictionCol, value)
 
   def setSeed(value: Long): this.type = set(seed, value)
 
@@ -130,7 +188,7 @@ class ANN(override val uid: String)
 
     val handlePersistence = dataset.storageLevel == StorageLevel.NONE
     val instances = dataset.select(col($(featuresCol))).rdd.map {
-      case Row(point: Vector) => CompactVector(point.toArray.map(_.toFloat))
+      case Row(point: Vector) => point
     }
 
     if (handlePersistence) {
@@ -138,10 +196,15 @@ class ANN(override val uid: String)
     }
 
     val count = instances.count()
+
+    if ($(sampleRate) == 0) {
+      set(sampleRate, math.max(10000, $(l)) / count.toDouble)
+    }
+
     val numExpectedSamples = (count * $(sampleRate)).toLong
 
     val instr = Instrumentation.create(this, instances)
-    instr.logParams(featuresCol, predictionCol, seed, steps, l, sampleRate)
+    instr.logParams(featuresCol, seed, steps, l, sampleRate)
     instr.logNamedValue("number of expected samples", numExpectedSamples)
 
     // algorithm
@@ -154,7 +217,7 @@ class ANN(override val uid: String)
       tree.split(grouped, instr)
     }
 
-    val model = copyValues(new ANNModel(uid, tree.getTree).setParent(this))
+    val model = copyValues(new ANNModel(uid, tree.result()).setParent(this))
     instr.logSuccess(model)
     if (handlePersistence) {
       instances.unpersist()
