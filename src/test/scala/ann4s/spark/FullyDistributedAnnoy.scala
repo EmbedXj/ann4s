@@ -56,6 +56,7 @@ object FullyDistributedAnnoy {
 
     Logger.getLogger("org").setLevel(Level.OFF)
     Logger.getLogger("akka").setLevel(Level.OFF)
+    Logger.getLogger("org.apache.spark.ui").setLevel(Level.DEBUG)
     Logger.getLogger("org.apache.spark.ml").setLevel(Level.DEBUG)
 
     val spark = SparkSession
@@ -66,7 +67,7 @@ object FullyDistributedAnnoy {
 
     val ann = new ANN()
       .setFeaturesCol("features")
-      .setNumTrees(10)
+      .setNumTrees(2)
       .setL(100000)
 
     val trainData = spark.read.parquet("dataset/train")

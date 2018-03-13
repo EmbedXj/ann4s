@@ -126,12 +126,11 @@ class CosineTreeBuilder(numItems: Long, steps: Int, l: Int, sampleRate: Double, 
   // leaf id increases as 2^{0} + 2^{1} + ... + 2^{numSplits}
   var countByLeaf: Map[Long, Long] = Map(0L -> numItems)
 
-  def split[L <: { def log(msg: String): Unit }](groupedSamples: Iterator[(Long, Array[Vector])], logger: L): Unit = {
+  def split(groupedSamples: Iterator[(Long, Array[Vector])]): Unit = {
     val newCountByLeaf = mutable.Map[Long, Long]()
 
     groupedSamples foreach { case (leaf, samples) =>
       val approxCount = math.round(samples.length / sampleRate)
-      logger.log(s"$depth:$leaf:${samples.length}:$approxCount")
       if (approxCount > l) {
         val shuffled = random.shuffle(samples.toSeq).take(CosineTree.iterationSteps + 2)
         tree += leaf -> CosineTree.createSplit(shuffled.toArray)
@@ -146,7 +145,6 @@ class CosineTreeBuilder(numItems: Long, steps: Int, l: Int, sampleRate: Double, 
       depth += 1
       countByLeaf = newCountByLeaf.toMap
     } else {
-      logger.log("nothing to split")
       done = true
     }
   }

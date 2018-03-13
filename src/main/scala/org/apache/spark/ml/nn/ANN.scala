@@ -14,6 +14,10 @@ import org.apache.spark.util.BoundedPriorityQueue
 
 import scala.util.Random
 
+case class NNQ(id: Int, q: Seq[(Int, Double)])
+
+case class NNQ2(id: Int, p: Seq[(Int, Double)], q: Seq[(Int, Double)])
+
 case class NN(id: Int, neighbors: Array[Int], distances: Array[Double])
 
 case class Data(point: Vector, target: String, id: Int)
@@ -93,38 +97,70 @@ class ANNModel private[ml] (override val uid: String, val forest: Array[CosineTr
 
     transformSchema(dataset.schema, logging = true)
 
-    val treeModel = forest(0)
+    val handlePersistence = dataset.storageLevel == StorageLevel.NONE
 
     val instances = dataset.select(col($(featuresCol)) as "point",
       col($(targetCol)) as "target", col($(idCol)) as "id").as[Data]
+
+    if (handlePersistence) {
+      instances.persist(StorageLevel.MEMORY_AND_DISK)
+    }
 
     val targetTrain = $(trainVal)
     val targetTest = $(testVal)
     val _k = $(k)
 
-    val nns = instances.groupByKey(x => treeModel.traverse(x.point)).flatMapGroups { (_, it) =>
-      val all = it.toArray
-      val train = all.filter(_.target == targetTrain)
-      val test = all.filter(_.target == targetTest)
-      val trainWithNorm = train.map { t =>
-        t -> Vectors.norm(t.point, 2)
-      }
+    var aggregatedNns = sparkSession.emptyDataset[NNQ]
+    forest.zipWithIndex foreach { case (treeModel, i) =>
 
-      test.map { q =>
-        val pq = new BoundedPriorityQueue[(Int, Double)](_k)(Ordering.by(-_._2))
-        val nrm2 = Vectors.norm(q.point, 2)
+      logInfo(s"traverse tree: $i")
 
-        trainWithNorm foreach { case (t, tnrm2) =>
-          val dist = CosineTree.cosineDistance(q.point, nrm2, t.point, tnrm2)
-          pq += t.id -> dist
+      val nns = instances.groupByKey(x => treeModel.traverse(x.point)).flatMapGroups { (_, it) =>
+        val all = it.toArray
+        val train = all.filter(_.target == targetTrain)
+        val test = all.filter(_.target == targetTest)
+        val trainWithNorm = train.map { t =>
+          t -> Vectors.norm(t.point, 2)
         }
-        val result = pq.toArray.sortBy(_._2)
 
-        NN(q.id, result.map(_._1), result.map(_._2))
+        test.map { q =>
+          val pq = new BoundedPriorityQueue[(Int, Double)](_k)(Ordering.by(-_._2))
+          val nrm2 = Vectors.norm(q.point, 2)
+
+          trainWithNorm foreach { case (t, tnrm2) =>
+            val dist = CosineTree.cosineDistance(q.point, nrm2, t.point, tnrm2)
+            pq += t.id -> dist
+          }
+
+          NNQ(q.id, pq.toSeq)
+        }
       }
+
+      if (i == 0) {
+        aggregatedNns = nns
+      } else {
+        logInfo("aggregate")
+        aggregatedNns = aggregatedNns.withColumnRenamed("q", "p").join(nns, "id").as[NNQ2].map { x =>
+          val pq = new BoundedPriorityQueue[(Int, Double)](x.p.length)(Ordering.by(-_._2))
+          pq ++= x.p
+          pq ++= x.q
+          NNQ(x.id, pq.toSeq)
+        }
+      }
+
+      // TODO: checkpoint aggregatedNns
+
     }
 
-    nns.toDF()
+    val result = aggregatedNns.as[NNQ].map { case NNQ(id, nns) =>
+      NN(id, nns.map(_._1).toArray, nns.map(_._2).toArray)
+    }.toDF().persist(StorageLevel.MEMORY_AND_DISK)
+
+    if (handlePersistence) {
+      instances.unpersist()
+    }
+
+    result
   }
 
   override def transformSchema(schema: StructType): StructType = {
@@ -223,7 +259,7 @@ class ANN(override val uid: String)
       samples.persist(StorageLevel.MEMORY_AND_DISK)
       builders filterNot(_.finished()) foreach { builder =>
         val grouped = samples.keyBy(builder.traverse).groupByKey().mapValues(_.toArray).toLocalIterator
-        builder.split(grouped, instr)
+        builder.split(grouped)
       }
       samples.unpersist()
     }
