@@ -111,7 +111,9 @@ case class CosineTree(tree: Map[Long, Vector]) {
   def traverse(v: Vector): Long = CosineTree.traverse(tree, v)
 }
 
-class CosineTreeBuilder(numItems: Long, steps: Int, l: Int, sampleRate: Double) extends Serializable {
+class CosineTreeBuilder(numItems: Long, steps: Int, l: Int, sampleRate: Double, seed: Long) extends Serializable {
+
+  val random = new Random(seed)
 
   var done = numItems <= l
 
@@ -131,7 +133,8 @@ class CosineTreeBuilder(numItems: Long, steps: Int, l: Int, sampleRate: Double) 
       val approxCount = math.round(samples.length / sampleRate)
       logger.log(s"$depth:$leaf:${samples.length}:$approxCount")
       if (approxCount > l) {
-        tree += leaf -> CosineTree.createSplit(samples)
+        val shuffled = random.shuffle(samples.toSeq).take(CosineTree.iterationSteps + 2)
+        tree += leaf -> CosineTree.createSplit(shuffled.toArray)
 
         // update count
         newCountByLeaf += ((leaf << 1) + 1) -> (approxCount / 2)

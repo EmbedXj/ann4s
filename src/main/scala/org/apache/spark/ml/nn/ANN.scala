@@ -34,6 +34,10 @@ trait ANNParams extends Params with HasFeaturesCol
 
   def getSampleRate: Double = $(sampleRate)
 
+  final val numTrees = new IntParam(this, "numTrees", "number of trees to build")
+
+  def getNumTrees: Int = $(numTrees)
+
   protected def validateAndTransformSchema(schema: StructType): StructType = {
     SchemaUtils.checkColumnType(schema, $(featuresCol), new VectorUDT)
     schema
@@ -167,7 +171,7 @@ object ANNModel extends MLReadable[ANNModel] {
 class ANN(override val uid: String)
   extends Estimator[ANNModel] with ANNParams with DefaultParamsWritable {
 
-  setDefault(steps -> 29, l -> 10000, sampleRate -> 0)
+  setDefault(steps -> 29, l -> 10000, sampleRate -> 0, numTrees -> 1)
 
   override def copy(extra: ParamMap): ANN = defaultCopy(extra)
 
@@ -182,6 +186,8 @@ class ANN(override val uid: String)
   def setL(value: Int): this.type = set(l, value)
 
   def setSampleRate(value: Double): this.type = set(sampleRate, value)
+
+  def setNumTrees(value: Int): this.type = set(numTrees, value)
 
   override def fit(dataset: Dataset[_]): ANNModel = {
     transformSchema(dataset.schema, logging = true)
@@ -204,20 +210,25 @@ class ANN(override val uid: String)
     val numExpectedSamples = (count * $(sampleRate)).toLong
 
     val instr = Instrumentation.create(this, instances)
-    instr.logParams(featuresCol, seed, steps, l, sampleRate)
+    instr.logParams(featuresCol, seed, steps, l, sampleRate, numTrees)
     instr.logNamedValue("number of expected samples", numExpectedSamples)
 
     // algorithm
     val random = new Random($(seed))
-    val builder = new CosineTreeBuilder(count, $(steps), $(l), $(sampleRate))
 
-    while (!builder.finished()) {
+    val builders = Array.fill(getNumTrees)(new CosineTreeBuilder(count, $(steps), $(l), $(sampleRate), random.nextLong()))
+
+    while (!builders.forall(_.finished())) {
       val samples = instances.sample(withReplacement = false, $(sampleRate), random.nextLong())
-      val grouped = samples.keyBy(builder.traverse).groupByKey().mapValues(_.toArray).toLocalIterator
-      builder.split(grouped, instr)
+      samples.persist(StorageLevel.MEMORY_AND_DISK)
+      builders filterNot(_.finished()) foreach { builder =>
+        val grouped = samples.keyBy(builder.traverse).groupByKey().mapValues(_.toArray).toLocalIterator
+        builder.split(grouped, instr)
+      }
+      samples.unpersist()
     }
 
-    val model = copyValues(new ANNModel(uid, Array(builder.result())).setParent(this))
+    val model = copyValues(new ANNModel(uid, builders.map(_.result())).setParent(this))
     instr.logSuccess(model)
     if (handlePersistence) {
       instances.unpersist()

@@ -66,6 +66,7 @@ object FullyDistributedAnnoy {
 
     val ann = new ANN()
       .setFeaturesCol("features")
+      .setNumTrees(10)
       .setL(100000)
 
     val trainData = spark.read.parquet("dataset/train")
