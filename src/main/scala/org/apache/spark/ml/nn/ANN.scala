@@ -2,7 +2,7 @@ package org.apache.spark.ml.nn
 
 import org.apache.hadoop.fs.Path
 import org.apache.spark.ml._
-import org.apache.spark.ml.linalg.{Vector, VectorUDT, Vectors}
+import org.apache.spark.ml.linalg.{Vector, VectorUDT}
 import org.apache.spark.ml.param._
 import org.apache.spark.ml.param.shared._
 import org.apache.spark.ml.util._
@@ -10,9 +10,6 @@ import org.apache.spark.sql.functions.col
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.{DataFrame, Dataset, Row}
 import org.apache.spark.storage.StorageLevel
-import org.apache.spark.util.BoundedPriorityQueue
-
-import scala.util.Random
 
 case class NNQ(id: Int, q: Seq[(Int, Double)])
 
@@ -22,8 +19,11 @@ case class NN(id: Int, neighbors: Array[Int], distances: Array[Double])
 
 case class Data(point: Vector, target: String, id: Int)
 
-trait ANNParams extends Params with HasFeaturesCol
-  with HasSeed {
+trait ANNParams extends Params with HasFeaturesCol with HasSeed {
+
+  final val idCol: Param[String] = new Param[String](this, "idCol", "id column name")
+
+  def getIdCol: String = $(idCol)
 
   final val steps = new IntParam(this, "steps", "The number of steps" +
     "Must be > 0 and < 30.", ParamValidators.inRange(1, 29))
@@ -62,23 +62,19 @@ trait ANNModelParams extends Params {
 
   def getTargetCol: String = $(targetCol)
 
-  final val idCol: Param[String] = new Param[String](this, "idCol", "id column name")
-
-  def getIdCol: String = $(idCol)
-
   final val k: Param[Int] = new IntParam(this, "k", "number of neighbors to query")
 
   def getK: Int = $(k)
 
 }
 
-class ANNModel private[ml] (override val uid: String, val forest: Array[CosineTree])
+class ANNModel private[ml] (override val uid: String, val forestArray: Array[CosineForest])
   extends Model[ANNModel] with ANNParams with ANNModelParams with MLWritable {
 
-  setDefault(trainVal -> "train",  testVal -> "test", targetCol -> "target", idCol -> "id")
+  setDefault(trainVal -> "train",  testVal -> "test", targetCol -> "target")
 
   override def copy(extra: ParamMap): ANNModel = {
-    copyValues(new ANNModel(uid, forest), extra)
+    copyValues(new ANNModel(uid, forestArray), extra)
   }
 
   def setFeaturesCol(value: String): this.type = set(featuresCol, value)
@@ -111,56 +107,65 @@ class ANNModel private[ml] (override val uid: String, val forest: Array[CosineTr
     val _k = $(k)
 
     var aggregatedNns = sparkSession.emptyDataset[NNQ]
-    forest.zipWithIndex foreach { case (treeModel, i) =>
 
-      logInfo(s"traverse tree: $i")
+//    forest.zipWithIndex foreach { case (treeModel, i) =>
+//
+//      logInfo(s"traverse tree: $i")
+//
+//      val nns = instances.groupByKey(x => treeModel.getCandidates(x.point)).flatMapGroups { (_, it) =>
+//        val all = it.toArray
+//        val train = all.filter(_.target == targetTrain)
+//        val test = all.filter(_.target == targetTest)
+//        val trainWithNorm = train.map { t =>
+//          t -> Vectors.norm(t.point, 2)
+//        }
+//
+//        test.map { q =>
+//          val pq = new BoundedPriorityQueue[(Int, Double)](_k)(Ordering.by(-_._2))
+//          val nrm2 = Vectors.norm(q.point, 2)
+//
+//          trainWithNorm foreach { case (t, tnrm2) =>
+//            val dist = CosineTree.cosineDistance(q.point, nrm2, t.point, tnrm2)
+//            pq += t.id -> dist
+//          }
+//
+//          NNQ(q.id, pq.toSeq)
+//        }
+//      }
+//
+//      val x = sparkSession.emptyDataset[(Int, Array[Int])].rdd
+//      val y = sparkSession.emptyDataset[(Int, Vector)].rdd
+//
+//      x.cartesian(y).foreachPartition { it =>
+//       it
+//      }
 
-      val nns = instances.groupByKey(x => treeModel.traverse(x.point)).flatMapGroups { (_, it) =>
-        val all = it.toArray
-        val train = all.filter(_.target == targetTrain)
-        val test = all.filter(_.target == targetTest)
-        val trainWithNorm = train.map { t =>
-          t -> Vectors.norm(t.point, 2)
-        }
-
-        test.map { q =>
-          val pq = new BoundedPriorityQueue[(Int, Double)](_k)(Ordering.by(-_._2))
-          val nrm2 = Vectors.norm(q.point, 2)
-
-          trainWithNorm foreach { case (t, tnrm2) =>
-            val dist = CosineTree.cosineDistance(q.point, nrm2, t.point, tnrm2)
-            pq += t.id -> dist
-          }
-
-          NNQ(q.id, pq.toSeq)
-        }
-      }
-
-      if (i == 0) {
-        aggregatedNns = nns
-      } else {
-        logInfo("aggregate")
-        aggregatedNns = aggregatedNns.withColumnRenamed("q", "p").join(nns, "id").as[NNQ2].map { x =>
-          val pq = new BoundedPriorityQueue[(Int, Double)](x.p.length)(Ordering.by(-_._2))
-          pq ++= x.p
-          pq ++= x.q
-          NNQ(x.id, pq.toSeq)
-        }
-      }
+//      if (i == 0) {
+//        aggregatedNns = nns
+//      } else {
+//        logInfo("aggregate")
+//        aggregatedNns = aggregatedNns.withColumnRenamed("q", "p").join(nns, "id").as[NNQ2].map { x =>
+//          val pq = new BoundedPriorityQueue[(Int, Double)](x.p.length)(Ordering.by(-_._2))
+//          pq ++= x.p
+//          pq ++= x.q
+//          NNQ(x.id, pq.toSeq)
+//        }
+//      }
 
       // TODO: checkpoint aggregatedNns
 
-    }
-
-    val result = aggregatedNns.as[NNQ].map { case NNQ(id, nns) =>
-      NN(id, nns.map(_._1).toArray, nns.map(_._2).toArray)
-    }.toDF().persist(StorageLevel.MEMORY_AND_DISK)
-
-    if (handlePersistence) {
-      instances.unpersist()
-    }
-
-    result
+//    }
+//
+//    val result = aggregatedNns.as[NNQ].map { case NNQ(id, nns) =>
+//      NN(id, nns.map(_._1).toArray, nns.map(_._2).toArray)
+//    }.toDF().persist(StorageLevel.MEMORY_AND_DISK)
+//
+//    if (handlePersistence) {
+//      instances.unpersist()
+//    }
+//
+//    result
+    ???
   }
 
   override def transformSchema(schema: StructType): StructType = {
@@ -182,7 +187,7 @@ object ANNModel extends MLReadable[ANNModel] {
     override protected def saveImpl(path: String): Unit = {
       DefaultParamsWriter.saveMetadata(instance, path, sc)
       val dataPath = new Path(path, "data").toString
-      sparkSession.createDataFrame(instance.forest).repartition(1).write.parquet(dataPath)
+      sparkSession.createDataFrame(instance.forestArray.map(_.copyStructuredForest())).repartition(1).write.parquet(dataPath)
     }
   }
 
@@ -196,8 +201,8 @@ object ANNModel extends MLReadable[ANNModel] {
       import sparkSession.implicits._
       val metadata = DefaultParamsReader.loadMetadata(path, sc, className)
       val dataPath = new Path(path, "data").toString
-      val tree = sparkSession.read.parquet(dataPath).as[CosineTree].collect()
-      val model = new ANNModel(metadata.uid, tree)
+      val forest = sparkSession.read.parquet(dataPath).as[StructuredForest].collect()
+      val model = new ANNModel(metadata.uid, forest.map(_.copyCosineForest()))
       DefaultParamsReader.getAndSetParams(model, metadata)
       model
     }
@@ -207,7 +212,7 @@ object ANNModel extends MLReadable[ANNModel] {
 class ANN(override val uid: String)
   extends Estimator[ANNModel] with ANNParams with DefaultParamsWritable {
 
-  setDefault(steps -> 29, l -> 10000, sampleRate -> 0, numTrees -> 1)
+  setDefault(idCol -> "id", steps -> 29, l -> 10000, sampleRate -> 0, numTrees -> 1)
 
   override def copy(extra: ParamMap): ANN = defaultCopy(extra)
 
@@ -228,47 +233,34 @@ class ANN(override val uid: String)
   override def fit(dataset: Dataset[_]): ANNModel = {
     transformSchema(dataset.schema, logging = true)
 
-    val handlePersistence = dataset.storageLevel == StorageLevel.NONE
-    val instances = dataset.select(col($(featuresCol))).rdd.map {
-      case Row(point: Vector) => point
+    val numItemsPerPartition = 100000
+    val numTrees = 10
+    val leafNodeCapacity = 1000
+
+    val count = dataset.count()
+    val requiredPartitions = math.ceil(count / numItemsPerPartition).toInt
+    val rdd = dataset.select(col($(idCol)), col($(featuresCol))).rdd.map {
+      case Row(id: Int, point: Vector) => new IndexedVectorWithNorm(id, point)
+    }
+    val instances = if (rdd.getNumPartitions != requiredPartitions) {
+      rdd.repartition(requiredPartitions)
+    } else {
+      rdd
     }
 
-    if (handlePersistence) {
-      instances.persist(StorageLevel.MEMORY_AND_DISK)
-    }
-
-    val count = instances.count()
-
-    if ($(sampleRate) == 0) {
-      set(sampleRate, math.max(10000, $(l)) / count.toDouble)
-    }
-
-    val numExpectedSamples = (count * $(sampleRate)).toLong
+    val forestArray = instances.mapPartitions { it =>
+      val builder = new CosineForestBuilder(numTrees, leafNodeCapacity)
+      // is toArray harmful?
+      val forest = builder.build(it.toArray)
+      Iterator.single(forest)
+    }.collect()
 
     val instr = Instrumentation.create(this, instances)
-    instr.logParams(featuresCol, seed, steps, l, sampleRate, numTrees)
-    instr.logNamedValue("number of expected samples", numExpectedSamples)
+    instr.logParams(featuresCol, seed, steps, l, sampleRate)
 
-    // algorithm
-    val random = new Random($(seed))
-
-    val builders = Array.fill(getNumTrees)(new CosineTreeBuilder(count, $(steps), $(l), $(sampleRate), random.nextLong()))
-
-    while (!builders.forall(_.finished())) {
-      val samples = instances.sample(withReplacement = false, $(sampleRate), random.nextLong())
-      samples.persist(StorageLevel.MEMORY_AND_DISK)
-      builders filterNot(_.finished()) foreach { builder =>
-        val grouped = samples.keyBy(builder.traverse).groupByKey().mapValues(_.toArray).toLocalIterator
-        builder.split(grouped)
-      }
-      samples.unpersist()
-    }
-
-    val model = copyValues(new ANNModel(uid, builders.map(_.result())).setParent(this))
+    val model = copyValues(new ANNModel(uid, forestArray)).setParent(this)
     instr.logSuccess(model)
-    if (handlePersistence) {
-      instances.unpersist()
-    }
+
     model
   }
 
