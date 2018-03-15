@@ -1,5 +1,6 @@
 package org.apache.spark.ml.nn
 
+import java.io.BufferedOutputStream
 import java.nio.{ByteBuffer, ByteOrder}
 
 import org.apache.spark.ml.linalg.{BLAS, DenseVector, SparseVector, Vector, Vectors}
@@ -10,11 +11,12 @@ import scala.util.Random
 
 class VectorWithNorm(val vector: DenseVector, var norm: Double) extends Serializable {
 
-  def aggregate(other: IdVectorWithNorm, c: Int): Unit = {
+  def aggregate(other: IdVectorWithNorm, c: Int): this.type = {
     BLAS.scal(c, vector)
     BLAS.axpy(1.0 / other.norm, other.vector, vector)
     BLAS.scal(1.0 / (c + 1), vector)
     norm = Vectors.norm(vector, 2)
+    this
   }
 
 }
@@ -24,9 +26,15 @@ case class IdVectorWithNorm(id: Int, vector: Vector, norm: Double) {
   def copyMutableVectorWithNorm: VectorWithNorm = {
     vector match {
       case sv: SparseVector =>
-        new VectorWithNorm(sv.toDense, norm)
+        val copied = sv.toDense
+        val norm = Vectors.norm(copied, 2)
+        BLAS.scal(1 / norm, copied)
+        new VectorWithNorm(copied, 1)
       case dv: DenseVector =>
-        new VectorWithNorm(dv.copy, norm)
+        val copied = dv.copy
+        val norm = Vectors.norm(copied, 2)
+        BLAS.scal(1 / norm, copied)
+        new VectorWithNorm(copied, 1)
     }
   }
 
@@ -111,12 +119,12 @@ object CosineTree {
 
   def margin(m: Vector, n: Vector): Double = BLAS.dot(m, n)
 
-  def side(m: Vector, n: Vector)(implicit random: Random): Boolean = {
+  def side(m: Vector, n: Vector)(implicit random: Random): Int = {
     val dot = margin(m, n)
     if (dot != 0)
-      dot > 0
+      if (dot > 0) 1 else 0
     else
-      random.nextBoolean()
+      if (random.nextBoolean()) 1 else 0
   }
 
 }
@@ -144,6 +152,9 @@ class Index(val nodes: Array[Node], val withItems: Boolean) extends Serializable
 
   def writeAnnoyBinary(d: Int, os: OutputStream): Unit = {
     assert(withItems, "index should include items for Annoy")
+
+    val bos = new BufferedOutputStream(os, 1024 * 1024)
+
     val bf = ByteBuffer.allocate(12 + d * 4).order(ByteOrder.LITTLE_ENDIAN)
 
     println(s"number of nodes ${nodes.length}")
@@ -161,7 +172,7 @@ class Index(val nodes: Array[Node], val withItems: Boolean) extends Serializable
         bf.putInt(0)
         for (x <- vector.toArray) bf.putFloat(x.toFloat)
         assert(bf.remaining() == 0)
-        os.write(bf.array())
+        bos.write(bf.array())
         numItemNodes += 1
       case RootNode(location) =>
         assert(numItemNodes > 0 && numHyperplaneNodes > 0 && numLeafNodes > 0)
@@ -173,7 +184,7 @@ class Index(val nodes: Array[Node], val withItems: Boolean) extends Serializable
             bf.putInt(r)
             for (x <- hyperplane.toArray) bf.putFloat(x.toFloat)
             assert(bf.remaining() == 0)
-            os.write(bf.array())
+            bos.write(bf.array())
           case _ => assert(false)
         }
         numRootNodes += 1
@@ -185,7 +196,7 @@ class Index(val nodes: Array[Node], val withItems: Boolean) extends Serializable
         bf.putInt(r)
         for (x <- hyperplane.toArray) bf.putFloat(x.toFloat)
         assert(bf.remaining() == 0)
-        os.write(bf.array())
+        bos.write(bf.array())
         numHyperplaneNodes += 1
       case LeafNode(children: Array[Int]) =>
         assert(numRootNodes == 0)
@@ -194,9 +205,10 @@ class Index(val nodes: Array[Node], val withItems: Boolean) extends Serializable
         children foreach bf.putInt // if exceed, exception raised
         while (bf.remaining() > 0) bf.putInt(0) // fill 0s for safety
         assert(bf.remaining() == 0)
-        os.write(bf.array())
+        bos.write(bf.array())
         numLeafNodes += 1
     }
+    bos.flush()
     println(numItemNodes, numRootNodes, numHyperplaneNodes, numLeafNodes)
   }
 
@@ -216,20 +228,14 @@ class Index(val nodes: Array[Node], val withItems: Boolean) extends Serializable
 
 }
 
-
-
-class IndexBuilder(numTrees: Int, leafNodeCapacity: Int, seed: Long) extends Serializable {
-
-  def this(numTrees: Int, leafNodeCapacity: Int) = this(numTrees, leafNodeCapacity, Random.nextLong())
+class IndexBuilder(numTrees: Int, leafNodeCapacity: Int)(implicit random: Random) extends Serializable {
 
   assert(numTrees > 0)
   assert(leafNodeCapacity > 1)
 
-  implicit val random: Random = new Random(seed)
-
   val nodes = new ArrayBuffer[Node]()
 
-  def build(points: Array[IdVectorWithNorm]): IndexedSeq[Node] = {
+  def build(points: IndexedSeq[IdVectorWithNorm]): IndexedSeq[Node] = {
     val roots = new ArrayBuffer[RootNode]()
     0 until numTrees foreach { _ =>
       val rootId = recurse(points)
@@ -248,7 +254,7 @@ class IndexBuilder(numTrees: Int, leafNodeCapacity: Int, seed: Long) extends Ser
       val leftChildren = new ArrayBuffer[IdVectorWithNorm]
       val rightChildren = new ArrayBuffer[IdVectorWithNorm]
       points foreach { p =>
-        if (CosineTree.side(hyperplane, p.vector)) leftChildren += p
+        if (CosineTree.side(hyperplane, p.vector) == 0) leftChildren += p
         else rightChildren += p
       }
 
@@ -264,7 +270,7 @@ class IndexBuilder(numTrees: Int, leafNodeCapacity: Int, seed: Long) extends Ser
 
       var l = -1
       var r = -1
-      if (leftChildren.length < rightChildren.length) {
+      if (leftChildren.length <= rightChildren.length) {
         l = recurse(leftChildren)
         r = recurse(rightChildren)
       } else {

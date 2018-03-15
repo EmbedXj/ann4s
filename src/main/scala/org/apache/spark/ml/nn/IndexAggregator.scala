@@ -46,6 +46,19 @@ class IndexAggregator() {
     aggregate(oldNodes)
   }
 
+  // TODO: merge
+  def prependItems2(items: IndexedSeq[IdVectorWithNorm]): this.type = {
+    assert(!withItems, "items already prepended")
+    withItems = true
+    val itemSize = items.reduceLeft((x, y) => if (x.id > y.id) x else y).id + 1
+    val itemNodes = new Array[Node](itemSize)
+    for (item <- items) itemNodes(item.id) = ItemNode(item.vector)
+    val oldNodes = nodes
+    nodes = new ArrayBuffer[Node](itemSize + oldNodes.length)
+    nodes ++= itemNodes
+    aggregate(oldNodes)
+  }
+
   def result(): Index = new Index(nodes.toArray, withItems)
 
 }

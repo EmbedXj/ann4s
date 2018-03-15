@@ -10,6 +10,8 @@ import org.apache.spark.sql.functions.col
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.{DataFrame, Dataset, Row}
 
+import scala.util.Random
+
 case class IdVector(id: Int, vector: Vector)
 
 trait ANNParams extends Params with HasFeaturesCol with HasSeed {
@@ -183,7 +185,7 @@ class ANN(override val uid: String)
     import sparkSession.implicits._
     transformSchema(dataset.schema, logging = true)
 
-    val numItemsPerPartition = 10000000
+    val numItemsPerPartition = 100000
     val numTrees1 = $(numTrees)
     val leafNodeCapacity = 25 + 2
 
@@ -202,9 +204,9 @@ class ANN(override val uid: String)
     instr.logParams(featuresCol, seed, steps, l, sampleRate)
 
     val indices = instances.mapPartitions { it =>
-      val builder = new IndexBuilder(numTrees1, leafNodeCapacity)
+      val builder = new IndexBuilder(numTrees1, leafNodeCapacity)(new Random())
       // is toArray harmful?
-      val index = builder.build(it.toArray)
+      val index = builder.build(it.toIndexedSeq)
       Iterator.single(index)
     }
 
