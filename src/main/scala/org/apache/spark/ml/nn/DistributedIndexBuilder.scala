@@ -1,6 +1,6 @@
 package org.apache.spark.ml.nn
 
-import java.nio.ByteBuffer
+import java.nio.{ByteBuffer, ByteOrder}
 
 import org.apache.spark.ml.linalg.{BLAS, DenseVector, SparseVector, Vector, Vectors}
 
@@ -144,48 +144,60 @@ class Index(val nodes: Array[Node], val withItems: Boolean) extends Serializable
 
   def writeAnnoyBinary(d: Int, os: OutputStream): Unit = {
     assert(withItems, "index should include items for Annoy")
-    val bf = ByteBuffer.allocate(12 + d * 4)
+    val bf = ByteBuffer.allocate(12 + d * 4).order(ByteOrder.LITTLE_ENDIAN)
 
+    println(s"number of nodes ${nodes.length}")
+
+    var numItemNodes = 0
+    var numRootNodes = 0
+    var numHyperplaneNodes = 0
+    var numLeafNodes = 0
     nodes foreach {
       case ItemNode(vector) =>
+        assert(numRootNodes == 0 && numHyperplaneNodes == 0 && numLeafNodes == 0)
         bf.clear()
         bf.putInt(1)
         bf.putInt(0) // TODO: fill out norm
         bf.putInt(0)
         for (x <- vector.toArray) bf.putFloat(x.toFloat)
+        assert(bf.remaining() == 0)
         os.write(bf.array())
+        numItemNodes += 1
       case RootNode(location) =>
-        val root = nodes(location)
-        root match {
-          case _: ItemNode => assert(false, "a item node can not be a root node")
-          case _: RootNode => assert(false, "recursive not allowed")
+        assert(numItemNodes > 0 && numHyperplaneNodes > 0 && numLeafNodes > 0)
+        nodes(location) match {
           case HyperplaneNode(hyperplane, l, r) =>
             bf.clear()
-            bf.putInt(Int.MaxValue) // fake
+            bf.putInt(numItemNodes)
             bf.putInt(l)
             bf.putInt(r)
             for (x <- hyperplane.toArray) bf.putFloat(x.toFloat)
+            assert(bf.remaining() == 0)
             os.write(bf.array())
-          case LeafNode(children: Array[Int]) =>
-            bf.clear()
-            bf.putInt(children.length)
-            children foreach bf.putInt // if exceed, exception raised
-            while (bf.remaining() == 0) bf.putInt(0) // fill 0s for safety
-            os.write(bf.array())
+          case _ => assert(false)
         }
-        os.write(bf.array())
+        numRootNodes += 1
       case HyperplaneNode(hyperplane, l, r) =>
+        assert(numRootNodes == 0)
         bf.clear()
-        bf.putInt(Int.MaxValue / 2) // fake
+        bf.putInt(Int.MaxValue) // fake
         bf.putInt(l)
         bf.putInt(r)
         for (x <- hyperplane.toArray) bf.putFloat(x.toFloat)
+        assert(bf.remaining() == 0)
+        os.write(bf.array())
+        numHyperplaneNodes += 1
       case LeafNode(children: Array[Int]) =>
+        assert(numRootNodes == 0)
+        bf.clear()
         bf.putInt(children.length)
         children foreach bf.putInt // if exceed, exception raised
-        while (bf.remaining() == 0) bf.putInt(0) // fill 0s for safety
+        while (bf.remaining() > 0) bf.putInt(0) // fill 0s for safety
+        assert(bf.remaining() == 0)
         os.write(bf.array())
+        numLeafNodes += 1
     }
+    println(numItemNodes, numRootNodes, numHyperplaneNodes, numLeafNodes)
   }
 
   def copyStructuredForest(): StructuredForest = {

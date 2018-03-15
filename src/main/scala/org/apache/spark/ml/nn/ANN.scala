@@ -146,8 +146,8 @@ object ANNModel extends MLReadable[ANNModel] {
       val sparkSession = super.sparkSession
       import sparkSession.implicits._
       val metadata = DefaultParamsReader.loadMetadata(path, sc, className)
-      val treePath = new Path(path, "tree").toString
-      val itemPath = new Path(path, "tree").toString
+      val treePath = new Path(path, "index").toString
+      val itemPath = new Path(path, "items").toString
       val forest = sparkSession.read.parquet(treePath).as[StructuredForest].head()
       val items = sparkSession.read.parquet(itemPath).as[IdVector]
       val model = new ANNModel(metadata.uid, forest.copyCosineForest(), items)
@@ -183,12 +183,12 @@ class ANN(override val uid: String)
     import sparkSession.implicits._
     transformSchema(dataset.schema, logging = true)
 
-    val numItemsPerPartition = 100000
-    val numTrees = 10
-    val leafNodeCapacity = 25
+    val numItemsPerPartition = 10000000
+    val numTrees1 = $(numTrees)
+    val leafNodeCapacity = 25 + 2
 
     val count = dataset.count()
-    val requiredPartitions = math.ceil(count / numItemsPerPartition).toInt
+    val requiredPartitions = math.ceil(count.toDouble / numItemsPerPartition).toInt
     val rdd = dataset.as[IdVector].rdd.map {
       case IdVector(id, vector) => IdVectorWithNorm(id, vector)
     }
@@ -202,7 +202,7 @@ class ANN(override val uid: String)
     instr.logParams(featuresCol, seed, steps, l, sampleRate)
 
     val indices = instances.mapPartitions { it =>
-      val builder = new IndexBuilder(numTrees, leafNodeCapacity)
+      val builder = new IndexBuilder(numTrees1, leafNodeCapacity)
       // is toArray harmful?
       val index = builder.build(it.toArray)
       Iterator.single(index)
