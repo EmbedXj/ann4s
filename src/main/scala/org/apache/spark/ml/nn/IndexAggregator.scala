@@ -25,6 +25,8 @@ class IndexAggregator() {
         roots += root.copy(root.location + offset)
       case hyperplane: HyperplaneNode =>
         nodes += hyperplane.copy(l = hyperplane.l + offset, r = hyperplane.r + offset)
+      case flip: FlipNode =>
+        nodes += flip.copy(l = flip.l + offset, r = flip.r + offset)
       case leaf: LeafNode =>
         nodes += leaf
       case _: ItemNode =>
@@ -57,6 +59,48 @@ class IndexAggregator() {
     nodes = new ArrayBuffer[Node](itemSize + oldNodes.length)
     nodes ++= itemNodes
     aggregate(oldNodes)
+  }
+
+  def mergeSubTree(subTreeId: Int, other: IndexedSeq[Node]): this.type = {
+    val subTreeRoot = other.last match {
+      case RootNode(location) => other(location)
+    }
+
+    val roots = new ArrayBuffer[Node]()
+    var i = nodes.length - 1
+    while (0 <= i && nodes(i).isInstanceOf[RootNode]) {
+      roots.insert(0, nodes(i))
+      i -= 1
+    }
+    // remove roots in nodes
+    nodes.reduceToSize(nodes.length - roots.length)
+    nodes.sizeHint(nodes.length + other.length + roots.length)
+
+    val offset = nodes.length
+
+    nodes(subTreeId) = subTreeRoot match {
+      case hyperplane: HyperplaneNode =>
+        hyperplane.copy(l = hyperplane.l + offset, r = hyperplane.r + offset)
+      case flip: FlipNode =>
+        flip.copy(l = flip.l + offset, r = flip.r + offset)
+      case leaf: LeafNode =>
+        leaf
+    }
+
+    other.dropRight(1) foreach {
+      case root: RootNode =>
+        roots += root.copy(root.location + offset)
+      case hyperplane: HyperplaneNode =>
+        nodes += hyperplane.copy(l = hyperplane.l + offset, r = hyperplane.r + offset)
+      case flip: FlipNode =>
+        nodes += flip.copy(l = flip.l + offset, r = flip.r + offset)
+      case leaf: LeafNode =>
+        nodes += leaf
+      case _: ItemNode =>
+        assert(assertion = false, "item nodes could not be aggregated")
+    }
+    nodes ++= roots
+    this
   }
 
   def result(): Index = new Index(nodes.toArray, withItems)

@@ -60,6 +60,8 @@ case class LeafNode(children: Array[Int]) extends Node
 
 case class ItemNode(vector: Vector) extends Node
 
+case class FlipNode(l: Int, r: Int) extends Node
+
 object CosineTree {
 
   val iterationSteps = 200
@@ -135,18 +137,30 @@ case class StructuredForest(nodes: Array[StructuredNode]) {
 
   def copyCosineForest(): Index = {
     val nodes: Array[Node] = this.nodes.map {
-      case StructuredNode(nodeType, location, _, _, _) if nodeType == 1 =>
+      case StructuredNode(1, location, _, _, _) =>
         RootNode(location)
-      case StructuredNode(nodeType, l, r, hyperplane, _) if nodeType == 2 =>
+      case StructuredNode(2, l, r, hyperplane, _) =>
         HyperplaneNode(new DenseVector(hyperplane), l, r)
-      case StructuredNode(nodeType, _, _, _, children) if nodeType == 3 =>
+      case StructuredNode(3, _, _, _, children) =>
         LeafNode(children)
+      case StructuredNode(4, l, r, _, _) =>
+        FlipNode(l, r)
     }
     new Index(nodes)
   }
 }
 
 class Index(val nodes: Array[Node], val withItems: Boolean) extends Serializable {
+
+  val roots: Array[RootNode] = {
+    val roots = new ArrayBuffer[RootNode]()
+    var i = nodes.length - 1
+    while (0 <= i && nodes(i).isInstanceOf[RootNode]) {
+      roots += nodes(i).asInstanceOf[RootNode]
+      i -= 1
+    }
+    roots.reverse.toArray
+  }
 
   def this(nodes: Array[Node]) = this(nodes, false)
 
@@ -185,6 +199,14 @@ class Index(val nodes: Array[Node], val withItems: Boolean) extends Serializable
             for (x <- hyperplane.toArray) bf.putFloat(x.toFloat)
             assert(bf.remaining() == 0)
             bos.write(bf.array())
+          case FlipNode(l, r) =>
+            bf.clear()
+            bf.putInt(numItemNodes)
+            bf.putInt(l)
+            bf.putInt(r)
+            for (i <- 0 until d) bf.putFloat(0)
+            assert(bf.remaining() == 0)
+            bos.write(bf.array())
           case _ => assert(false)
         }
         numRootNodes += 1
@@ -207,6 +229,15 @@ class Index(val nodes: Array[Node], val withItems: Boolean) extends Serializable
         assert(bf.remaining() == 0)
         bos.write(bf.array())
         numLeafNodes += 1
+      case FlipNode(l, r) =>
+        bf.clear()
+        bf.putInt(numItemNodes)
+        bf.putInt(l)
+        bf.putInt(r)
+        for (i <- 0 until d) bf.putFloat(0)
+        assert(bf.remaining() == 0)
+        bos.write(bf.array())
+        numHyperplaneNodes += 1
     }
     bos.flush()
     println(numItemNodes, numRootNodes, numHyperplaneNodes, numLeafNodes)
@@ -220,11 +251,28 @@ class Index(val nodes: Array[Node], val withItems: Boolean) extends Serializable
         StructuredNode(2, l, r, hyperplane.values, Array.emptyIntArray)
       case LeafNode(children: Array[Int]) =>
         StructuredNode(3, -1, -1, Array.emptyDoubleArray, children)
+      case FlipNode(l, r) =>
+        StructuredNode(4, l, r, Array.emptyDoubleArray, Array.emptyIntArray)
     }
     StructuredForest(structuredNodes)
   }
 
   def getCandidates(v: IdVectorWithNorm): Array[Int] = ???
+
+  def traverse(vector: Vector)(implicit random: Random): Int = {
+    var nodeId = roots(0).location
+    var node = nodes(nodeId)
+    while (!node.isInstanceOf[LeafNode] && !node.isInstanceOf[FlipNode]) {
+      node match {
+        case HyperplaneNode(hyperplane, l, r) =>
+          if (CosineTree.side(hyperplane, vector) == 0) nodeId = l
+          else nodeId = r
+        case _ => assert(false)
+      }
+      node = nodes(nodeId)
+    }
+    nodeId
+  }
 
 }
 
@@ -250,6 +298,7 @@ class IndexBuilder(numTrees: Int, leafNodeCapacity: Int)(implicit random: Random
       nodes += LeafNode(points.map(_.id).toArray)
       nodes.length - 1
     } else {
+      var failed = false
       val hyperplane = CosineTree.createSplit(points)
       val leftChildren = new ArrayBuffer[IdVectorWithNorm]
       val rightChildren = new ArrayBuffer[IdVectorWithNorm]
@@ -259,11 +308,12 @@ class IndexBuilder(numTrees: Int, leafNodeCapacity: Int)(implicit random: Random
       }
 
       if (leftChildren.isEmpty || rightChildren.isEmpty) {
+        failed = true
         leftChildren.clear()
         rightChildren.clear()
-        BLAS.scal(0, hyperplane) // set zeros
+        // BLAS.scal(0, hyperplane) // set zeros
         points foreach { p =>
-          if (random.nextBoolean()) leftChildren += p
+          if (!random.nextBoolean()) leftChildren += p
           else rightChildren += p
         }
       }
@@ -278,7 +328,11 @@ class IndexBuilder(numTrees: Int, leafNodeCapacity: Int)(implicit random: Random
         l = recurse(leftChildren)
       }
 
-      nodes += HyperplaneNode(hyperplane, l, r)
+      if (failed) {
+        nodes += FlipNode(l, r)
+      } else {
+        nodes += HyperplaneNode(hyperplane, l, r)
+      }
       nodes.length - 1
     }
   }

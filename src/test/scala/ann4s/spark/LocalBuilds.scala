@@ -4,7 +4,7 @@ import java.io.{File, FileInputStream, FileOutputStream}
 import java.nio.{ByteBuffer, ByteOrder}
 
 import org.apache.spark.ml.linalg.Vectors
-import org.apache.spark.ml.nn.{IdVectorWithNorm, IndexAggregator, IndexBuilder}
+import org.apache.spark.ml.nn.{IdVectorWithNorm, Index, IndexAggregator, IndexBuilder}
 
 import scala.collection.mutable.ArrayBuffer
 import scala.util.Random
@@ -39,9 +39,31 @@ object LocalBuilds {
 
     implicit val random = new Random(new Kiss32Random)
 
-    val builder = new IndexBuilder(10, d + 2)
+    val builder = new IndexBuilder(1, d + 2)
+
+    val samples = Array.fill(10000)(items(Random.nextInt(items.length)))
+
+    val masterIndex = new Index(builder.build(samples).toArray, false)
+
     val aggregator = new IndexAggregator
-    val index = aggregator.prependItems2(items).aggregate(builder.build(items)).result()
+    aggregator.aggregate(masterIndex.nodes)
+
+    items
+      .map { item =>
+        masterIndex.traverse(item.vector) -> item
+      }
+      .groupBy(_._1)
+      .map { case (subTreeId, it) =>
+        println(subTreeId, it.length)
+        subTreeId -> new IndexBuilder(1, d + 2).build(it.map(_._2))
+      }
+      .foreach { case (subTreeId, subTreeNodes) =>
+        aggregator.mergeSubTree(subTreeId, subTreeNodes)
+      }
+
+
+
+    val index = aggregator.prependItems2(items).result()
 
     val directory = new File("exp/annoy")
     directory.mkdirs()

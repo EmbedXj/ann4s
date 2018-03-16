@@ -2,7 +2,7 @@ package ann4s.spark
 
 import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.log4j.{Level, Logger}
-import org.apache.spark.ml.nn.{ANN, ANNModel, IndexAggregator}
+import org.apache.spark.ml.nn.{ANN, ANN1, ANNModel, IndexAggregator}
 import org.apache.spark.sql.SparkSession
 
 object DistributedBuilds {
@@ -21,9 +21,9 @@ object DistributedBuilds {
       .appName("distributed builds")
       .getOrCreate()
 
-    val ann = new ANN()
+    val ann = new ANN1()
       .setFeaturesCol("vector")
-      .setNumTrees(10)
+      .setNumTrees(1)
 
     val data = spark.read.parquet("dataset/train")
 
@@ -44,7 +44,6 @@ object DistributedBuilds {
     val os = fs.create(path, true, 1024*1024)
     indexWithItems.writeAnnoyBinary(25, os)
     os.close()
-
 
     spark.stop()
   }
