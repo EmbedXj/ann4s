@@ -1,9 +1,10 @@
-package org.apache.spark.ml.nn
+package ann4s
 
 import java.io.BufferedOutputStream
 import java.nio.{ByteBuffer, ByteOrder}
 
-import org.apache.spark.ml.linalg.{BLAS, DenseVector, Vector, Vectors}
+import org.apache.spark.ml.nn.BLASProxy
+import org.apache.spark.ml.linalg.{DenseVector, Vector, Vectors}
 
 import scala.collection.mutable.ArrayBuffer
 import scala.tools.nsc.interpreter.OutputStream
@@ -162,9 +163,9 @@ object IndexBuilder {
 
   def createSplit(sample: IndexedSeq[IdVectorWithNorm])(implicit distance: Distance, random: Random): DenseVector = {
     val (p, q) = twoMeans(sample)
-    BLAS.axpy(-1, q, p)
+    BLASProxy.axpy(-1, q, p)
     val norm = Vectors.norm(p, 2)
-    BLAS.scal(1 / norm, p)
+    BLASProxy.scal(1 / norm, p)
     p
   }
 }

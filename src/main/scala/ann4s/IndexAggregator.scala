@@ -1,4 +1,4 @@
-package org.apache.spark.ml.nn
+package ann4s
 
 import scala.collection.mutable.ArrayBuffer
 

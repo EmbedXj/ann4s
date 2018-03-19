@@ -3,8 +3,8 @@ package ann4s.spark
 import java.io.{File, FileInputStream, FileOutputStream}
 import java.nio.{ByteBuffer, ByteOrder}
 
+import ann4s._
 import org.apache.spark.ml.linalg.Vectors
-import org.apache.spark.ml.nn._
 
 import scala.collection.mutable.ArrayBuffer
 import scala.util.Random

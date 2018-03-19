@@ -1,4 +1,4 @@
-package org.apache.spark.ml.nn
+package ann4s
 
 import org.apache.spark.ml.linalg.{DenseVector, Vector}
 

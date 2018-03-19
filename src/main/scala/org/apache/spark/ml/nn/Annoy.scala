@@ -2,6 +2,7 @@ package org.apache.spark.ml.nn
 
 import java.io.OutputStream
 
+import ann4s._
 import org.apache.hadoop.fs.Path
 import org.apache.spark.ml._
 import org.apache.spark.ml.linalg.VectorUDT
@@ -53,16 +54,16 @@ trait ANNModelParams extends Params {
 
 }
 
-class ANNModel private[ml] (
+class AnnoyModel private[ml] (
   override val uid: String,
   val d: Int,
   val index: Index,
   @transient val items: Dataset[IdVector]
 )
-  extends Model[ANNModel] with ANNParams with ANNModelParams with MLWritable {
+  extends Model[AnnoyModel] with ANNParams with ANNModelParams with MLWritable {
 
-  override def copy(extra: ParamMap): ANNModel = {
-    copyValues(new ANNModel(uid, d, index, items), extra)
+  override def copy(extra: ParamMap): AnnoyModel = {
+    copyValues(new AnnoyModel(uid, d, index, items), extra)
   }
 
   def setK(value: Int): this.type = set(k, value)
@@ -101,7 +102,7 @@ class ANNModel private[ml] (
     validateAndTransformSchema(schema)
   }
 
-  override def write: MLWriter = new ANNModel.ANNModelWriter(this)
+  override def write: MLWriter = new AnnoyModel.ANNModelWriter(this)
 
   def writeToAnnoyBinary(os: OutputStream): Unit = {
     val indexWithItems = new IndexAggregator()
@@ -114,13 +115,13 @@ class ANNModel private[ml] (
 
 }
 
-object ANNModel extends MLReadable[ANNModel] {
+object AnnoyModel extends MLReadable[AnnoyModel] {
 
-  override def read: MLReader[ANNModel] = new ANNModelReader
+  override def read: MLReader[AnnoyModel] = new ANNModelReader
 
-  override def load(path: String): ANNModel = super.load(path)
+  override def load(path: String): AnnoyModel = super.load(path)
 
-  private[ANNModel] class ANNModelWriter(instance: ANNModel) extends MLWriter {
+  private[AnnoyModel] class ANNModelWriter(instance: AnnoyModel) extends MLWriter {
 
     override protected def saveImpl(path: String): Unit = {
       val extraMetadata = "d" -> instance.d
@@ -133,12 +134,12 @@ object ANNModel extends MLReadable[ANNModel] {
     }
   }
 
-  private class ANNModelReader extends MLReader[ANNModel] {
+  private class ANNModelReader extends MLReader[AnnoyModel] {
 
     /** Checked against metadata when loading model */
-    private val className = classOf[ANNModel].getName
+    private val className = classOf[AnnoyModel].getName
 
-    override def load(path: String): ANNModel = {
+    override def load(path: String): AnnoyModel = {
       val sparkSession = super.sparkSession
       import sparkSession.implicits._
       val metadata = DefaultParamsReader.loadMetadata(path, sc, className)
@@ -148,19 +149,19 @@ object ANNModel extends MLReadable[ANNModel] {
       val itemPath = new Path(path, "items").toString
       val forest = sparkSession.read.parquet(treePath).as[StructuredNodes].head()
       val items = sparkSession.read.parquet(itemPath).as[IdVector]
-      val model = new ANNModel(metadata.uid, d, forest.copyCosineForest(), items)
+      val model = new AnnoyModel(metadata.uid, d, forest.copyCosineForest(), items)
       DefaultParamsReader.getAndSetParams(model, metadata)
       model
     }
   }
 }
 
-class ANN(override val uid: String)
-  extends Estimator[ANNModel] with ANNParams with DefaultParamsWritable {
+class Annoy(override val uid: String)
+  extends Estimator[AnnoyModel] with ANNParams with DefaultParamsWritable {
 
   setDefault(numTrees -> 1, fraction -> 0.01)
 
-  override def copy(extra: ParamMap): ANN = defaultCopy(extra)
+  override def copy(extra: ParamMap): Annoy = defaultCopy(extra)
 
   def this() = this(Identifiable.randomUID("ann"))
 
@@ -168,7 +169,7 @@ class ANN(override val uid: String)
 
   def setFraction(value: Double): this.type = set(fraction, value)
 
-  override def fit(dataset: Dataset[_]): ANNModel = {
+  override def fit(dataset: Dataset[_]): AnnoyModel = {
     val sparkSession = dataset.sparkSession
     import sparkSession.implicits._
 
@@ -221,7 +222,7 @@ class ANN(override val uid: String)
 
     val index = globalAggregator.result()
 
-    val model = copyValues(new ANNModel(uid, d, index, dataset.as[IdVector])).setParent(this)
+    val model = copyValues(new AnnoyModel(uid, d, index, dataset.as[IdVector])).setParent(this)
     instr.logSuccess(model)
     if (handlePersistence) {
       instances.unpersist()
@@ -234,6 +235,6 @@ class ANN(override val uid: String)
   }
 }
 
-object ANN extends DefaultParamsReadable[ANN] {
-  override def load(path: String): ANN = super.load(path)
+object Annoy extends DefaultParamsReadable[Annoy] {
+  override def load(path: String): Annoy = super.load(path)
 }

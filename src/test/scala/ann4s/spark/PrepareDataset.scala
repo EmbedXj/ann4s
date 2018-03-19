@@ -3,8 +3,8 @@ package ann4s.spark
 import java.io.FileInputStream
 import java.nio.{ByteBuffer, ByteOrder}
 
+import ann4s.IdVector
 import org.apache.spark.ml.linalg.Vectors
-import org.apache.spark.ml.nn.IdVector
 import org.apache.spark.sql.SparkSession
 
 import scala.collection.mutable.ArrayBuffer

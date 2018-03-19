@@ -1,6 +1,7 @@
-package org.apache.spark.ml.nn
+package ann4s
 
-import org.apache.spark.ml.linalg.{BLAS, DenseVector, SparseVector, Vector, Vectors}
+import org.apache.spark.ml.linalg.{DenseVector, SparseVector, Vector, Vectors}
+import org.apache.spark.ml.nn.BLASProxy
 
 trait HasId {
   def getId: Int
@@ -15,6 +16,8 @@ trait HasNorm {
 }
 
 case class IdVector(id: Int, vector: Vector) extends HasId with HasVector {
+  def toIdVectorWithNorm: IdVectorWithNorm = IdVectorWithNorm(id, vector)
+
   override def getId: Int = id
   override def getVector: Vector = vector
 }
@@ -23,9 +26,9 @@ class VectorWithNorm(val vector: DenseVector, var norm: Double)
   extends HasVector with HasNorm with Serializable {
 
   def aggregate(other: IdVectorWithNorm, c: Int): this.type = {
-    BLAS.scal(c, vector)
-    BLAS.axpy(1.0 / other.norm, other.vector, vector)
-    BLAS.scal(1.0 / (c + 1), vector)
+    BLASProxy.scal(c, vector)
+    BLASProxy.axpy(1.0 / other.norm, other.vector, vector)
+    BLASProxy.scal(1.0 / (c + 1), vector)
     norm = Vectors.norm(vector, 2)
     this
   }
@@ -42,12 +45,12 @@ case class IdVectorWithNorm(id: Int, vector: Vector, norm: Double)
       case sv: SparseVector =>
         val copied = sv.toDense
         val norm = Vectors.norm(copied, 2)
-        BLAS.scal(1 / norm, copied)
+        BLASProxy.scal(1 / norm, copied)
         new VectorWithNorm(copied, 1)
       case dv: DenseVector =>
         val copied = dv.copy
         val norm = Vectors.norm(copied, 2)
-        BLAS.scal(1 / norm, copied)
+        BLASProxy.scal(1 / norm, copied)
         new VectorWithNorm(copied, 1)
     }
   }
@@ -66,4 +69,3 @@ object IdVectorWithNorm {
     IdVectorWithNorm(id, Vectors.dense(array))
 
 }
-

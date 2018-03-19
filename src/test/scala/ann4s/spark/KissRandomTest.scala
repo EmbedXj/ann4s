@@ -1,7 +1,7 @@
 package ann4s.spark
 
-import org.scalatest._
 import org.scalatest.Matchers._
+import org.scalatest._
 
 class KissRandomTest extends FunSuite {
 

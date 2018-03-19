@@ -1,8 +1,8 @@
 package ann4s.spark
 
+import ann4s.{CosineDistance, IdVectorWithNorm, IndexBuilder}
 import com.github.fommil.netlib.BLAS
 import org.apache.spark.ml.linalg.Vectors
-import org.apache.spark.ml.nn.{CosineDistance, IdVectorWithNorm, IndexBuilder}
 import org.scalatest.Matchers._
 import org.scalatest._
 

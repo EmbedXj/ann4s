@@ -1,7 +1,7 @@
 package ann4s.spark
 
+import ann4s._
 import org.apache.spark.ml.linalg.{DenseVector, Vectors}
-import org.apache.spark.ml.nn._
 import org.scalatest.Matchers._
 import org.scalatest._
 

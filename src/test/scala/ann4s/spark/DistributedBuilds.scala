@@ -2,7 +2,7 @@ package ann4s.spark
 
 import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.log4j.{Level, Logger}
-import org.apache.spark.ml.nn.{ANN, ANNModel}
+import org.apache.spark.ml.nn.{Annoy, AnnoyModel}
 import org.apache.spark.sql.SparkSession
 
 object DistributedBuilds {
@@ -21,7 +21,7 @@ object DistributedBuilds {
       .appName("distributed builds")
       .getOrCreate()
 
-    val ann = new ANN()
+    val ann = new Annoy()
       .setNumTrees(2)
 
     val data = spark.read.parquet("dataset/train")
@@ -30,7 +30,7 @@ object DistributedBuilds {
 
     annModel.write.overwrite().save("exp/ann")
 
-    val loaded = ANNModel.load("exp/ann")
+    val loaded = AnnoyModel.load("exp/ann")
     val path = new Path("exp/annoy", "spark.ann")
     val fs = FileSystem.get(spark.sparkContext.hadoopConfiguration)
     val os = fs.create(path, true, 1024*1024)
