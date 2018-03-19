@@ -7,17 +7,22 @@ import org.apache.hadoop.fs.Path
 import org.apache.spark.ml._
 import org.apache.spark.ml.linalg.VectorUDT
 import org.apache.spark.ml.param._
-import org.apache.spark.ml.param.shared.HasSeed
+import org.apache.spark.ml.param.shared.{HasFeaturesCol, HasSeed}
 import org.apache.spark.ml.util._
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{DataFrame, Dataset}
+import org.apache.spark.sql.{DataFrame, Dataset, Row}
 import org.apache.spark.storage.StorageLevel
 import org.json4s.DefaultFormats
 import org.json4s.JsonDSL._
+import org.apache.spark.ml.linalg.{Vector => MlVector}
 
 import scala.util.Random
 
-trait ANNParams extends Params with HasSeed {
+trait ANNParams extends Params with HasFeaturesCol with HasSeed {
+
+  final val idCol: Param[String] = new Param[String](this, "idCol", "id column name")
+
+  def getIdCol: String = $(idCol)
 
   final val numTrees: IntParam = new IntParam(this, "numTrees", "number of trees to build")
 
@@ -28,8 +33,8 @@ trait ANNParams extends Params with HasSeed {
   def getFraction: Double = $(fraction)
 
   protected def validateAndTransformSchema(schema: StructType): StructType = {
-    SchemaUtils.checkColumnType(schema, "id", IntegerType)
-    SchemaUtils.checkColumnType(schema, "vector", new VectorUDT)
+    SchemaUtils.checkColumnType(schema, $(idCol), IntegerType)
+    SchemaUtils.checkColumnType(schema, $(featuresCol), new VectorUDT)
     schema
   }
 }
@@ -58,7 +63,7 @@ class AnnoyModel private[ml] (
   override val uid: String,
   val d: Int,
   val index: Index,
-  @transient val items: Dataset[IdVector]
+  @transient val items: DataFrame
 )
   extends Model[AnnoyModel] with ANNParams with ANNModelParams with MLWritable {
 
@@ -105,11 +110,13 @@ class AnnoyModel private[ml] (
   override def write: MLWriter = new AnnoyModel.ANNModelWriter(this)
 
   def writeToAnnoyBinary(os: OutputStream): Unit = {
+    val vectorWithIds = items.select($(idCol), $(featuresCol)).rdd.map {
+      case Row(id: Int, features: MlVector) => IdVector(id, DVector(features.toArray))
+    }
     val indexWithItems = new IndexAggregator()
-      .prependItems(items.collect())
+      .prependItems(vectorWithIds.collect())
       .aggregate(index.nodes)
       .result()
-
     indexWithItems.writeAnnoyBinary(d, os)
   }
 
@@ -148,7 +155,7 @@ object AnnoyModel extends MLReadable[AnnoyModel] {
       val treePath = new Path(path, "index").toString
       val itemPath = new Path(path, "items").toString
       val forest = sparkSession.read.parquet(treePath).as[StructuredNodes].head()
-      val items = sparkSession.read.parquet(itemPath).as[IdVector]
+      val items = sparkSession.read.parquet(itemPath)
       val model = new AnnoyModel(metadata.uid, d, forest.copyCosineForest(), items)
       DefaultParamsReader.getAndSetParams(model, metadata)
       model
@@ -159,7 +166,7 @@ object AnnoyModel extends MLReadable[AnnoyModel] {
 class Annoy(override val uid: String)
   extends Estimator[AnnoyModel] with ANNParams with DefaultParamsWritable {
 
-  setDefault(numTrees -> 1, fraction -> 0.01)
+  setDefault(idCol -> "id", featuresCol -> "features", numTrees -> 1, fraction -> 0.01)
 
   override def copy(extra: ParamMap): Annoy = defaultCopy(extra)
 
@@ -171,13 +178,14 @@ class Annoy(override val uid: String)
 
   override def fit(dataset: Dataset[_]): AnnoyModel = {
     val sparkSession = dataset.sparkSession
-    import sparkSession.implicits._
 
     transformSchema(dataset.schema, logging = true)
 
     val handlePersistence = dataset.storageLevel == StorageLevel.NONE
 
-    val instances = dataset.as[IdVector].rdd.map { x => IdVectorWithNorm(x.id, x.vector) }
+    val instances = dataset.select($(idCol), $(featuresCol)).rdd.map {
+      case Row(id: Int, features: MlVector) => IdVectorWithNorm(id, features.toArray)
+    }
 
     if (handlePersistence) {
       instances.persist(StorageLevel.MEMORY_AND_DISK)
@@ -222,7 +230,7 @@ class Annoy(override val uid: String)
 
     val index = globalAggregator.result()
 
-    val model = copyValues(new AnnoyModel(uid, d, index, dataset.as[IdVector])).setParent(this)
+    val model = copyValues(new AnnoyModel(uid, d, index, dataset.select($(idCol), $(featuresCol)))).setParent(this)
     instr.logSuccess(model)
     if (handlePersistence) {
       instances.unpersist()

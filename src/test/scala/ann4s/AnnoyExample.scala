@@ -6,7 +6,7 @@ object AnnoyExample {
     val f = 40
     val t = new AnnoyIndex(f, CosineDistance)
     (0 until 1000) foreach { i =>
-      val v = Array.fill(f)(scala.util.Random.nextGaussian())
+      val v = Array.fill(f)(scala.util.Random.nextGaussian().toFloat)
       t.addItem(i, v)
     }
     t.build(10)

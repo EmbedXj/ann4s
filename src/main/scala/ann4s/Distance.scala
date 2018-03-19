@@ -1,8 +1,5 @@
 package ann4s
 
-import org.apache.spark.ml.nn.BLASProxy
-import org.apache.spark.ml.linalg.Vector
-
 import scala.util.Random
 
 object Side extends Enumeration {
@@ -28,20 +25,20 @@ trait Distance {
 object CosineDistance extends Distance {
 
   def distance(a: VectorWithNorm, b: IdVectorWithNorm): Double = {
-    val dot = BLASProxy.dot(a.vector, b.vector)
+    val dot = Vectors.dot(a.vector, b.vector)
     val norm = a.norm * b.norm
     if (norm > 0) 2 - 2 * dot / norm
     else 2
   }
 
   def distance(a: IdVectorWithNorm, b: IdVectorWithNorm): Double = {
-    val dot = BLASProxy.dot(a.vector, b.vector)
+    val dot = Vectors.dot(a.vector, b.vector)
     val norm = a.norm * b.norm
     if (norm > 0) 2 - 2 * dot / norm
     else 2
   }
 
-  def margin(m: Vector, n: Vector): Double = BLASProxy.dot(m, n)
+  def margin(m: Vector, n: Vector): Double = Vectors.dot(m, n)
 
   def side(m: Vector, n: Vector)(implicit random: Random): Side.Value = {
     val dot = margin(m, n)

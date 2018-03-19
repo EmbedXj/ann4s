@@ -1,7 +1,5 @@
 package ann4s
 
-import org.apache.spark.ml.linalg.{DenseVector, Vector}
-
 trait Node extends Serializable {
 
   def toStructuredNode: StructuredNode
@@ -14,7 +12,7 @@ case class RootNode(location: Int) extends Node {
   }
 }
 
-case class HyperplaneNode(hyperplane: DenseVector, l: Int, r: Int) extends Node {
+case class HyperplaneNode(hyperplane: Vector, l: Int, r: Int) extends Node {
   override def toStructuredNode: StructuredNode = {
     StructuredNode(2, l, r, hyperplane.values, Array.emptyIntArray)
   }
@@ -42,7 +40,7 @@ case class StructuredNode(nodeType: Int, l: Int, r: Int, hyperplane: Array[Doubl
   def toNode: Node = {
     nodeType match {
       case 1 => RootNode(l)
-      case 2 => HyperplaneNode(new DenseVector(hyperplane), l, r)
+      case 2 => HyperplaneNode(DVector(hyperplane), l, r)
       case 3 => LeafNode(children)
       case 4 => FlipNode(l, r)
     }

@@ -3,8 +3,7 @@ package ann4s.spark
 import java.io.FileInputStream
 import java.nio.{ByteBuffer, ByteOrder}
 
-import ann4s.IdVector
-import org.apache.spark.ml.linalg.Vectors
+import org.apache.spark.ml.linalg.{Vectors, Vector}
 import org.apache.spark.sql.SparkSession
 
 import scala.collection.mutable.ArrayBuffer
@@ -32,7 +31,7 @@ object PrepareDataset {
         throw ex
       }
 
-      val dataset = new ArrayBuffer[IdVector]()
+      val dataset = new ArrayBuffer[(Int, Vector)]()
       var id = 0
       while (fis.read(data) == d * 4) {
         val bf = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
@@ -43,7 +42,7 @@ object PrepareDataset {
         }
 
         val cv = Vectors.dense(ar.map(_.toDouble))
-        dataset += IdVector(id, cv)
+        dataset += id -> cv
         id += 1
         if ((id % 10000) == 0)
           println(id)
@@ -53,7 +52,7 @@ object PrepareDataset {
       spark
         .sparkContext
         .parallelize(dataset)
-        .toDS
+        .toDF("id", "features")
         .write
         .mode("overwrite")
         .parquet(s"dataset/$setName")

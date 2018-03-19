@@ -1,10 +1,7 @@
-package ann4s.spark
+package ann4s
 
 import java.io.{File, FileInputStream, FileOutputStream}
 import java.nio.{ByteBuffer, ByteOrder}
-
-import ann4s._
-import org.apache.spark.ml.linalg.Vectors
 
 import scala.collection.mutable.ArrayBuffer
 import scala.util.Random
@@ -29,7 +26,7 @@ object LocalBuilds {
       }
 
       val copied = ar.map(_.toDouble)
-      val cv = Vectors.dense(copied)
+      val cv = DVector(copied)
       items += IdVectorWithNorm(id, cv)
       id += 1
       if ((id % 10000) == 0)

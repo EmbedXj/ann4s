@@ -1,20 +1,18 @@
-package ann4s.spark
+package ann4s
 
-import ann4s._
-import org.apache.spark.ml.linalg.{DenseVector, Vectors}
 import org.scalatest.Matchers._
 import org.scalatest._
 
 class IndexAggregatorTest extends FunSuite {
 
-  val hyperplane = new DenseVector(Array.emptyDoubleArray)
+  val hyperplane = DVector(Array.emptyDoubleArray)
   val lLeaf = Array(0, 1)
   val rLeaf = Array(2, 3)
   val items = Array(
-    IdVector(0, Vectors.dense(Array(0.1))),
-    IdVector(1, Vectors.dense(Array(0.2))),
-    IdVector(2, Vectors.dense(Array(0.3))),
-    IdVector(3, Vectors.dense(Array(0.4))))
+    IdVector(0, DVector(Array(0.1))),
+    IdVector(1, DVector(Array(0.2))),
+    IdVector(2, DVector(Array(0.3))),
+    IdVector(3, DVector(Array(0.4))))
 
   def getAggregatedResult: IndexAggregator = {
     val aggregator = new IndexAggregator

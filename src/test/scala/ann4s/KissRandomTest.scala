@@ -1,5 +1,6 @@
-package ann4s.spark
+package ann4s
 
+import ann4s.spark.Kiss32Random
 import org.scalatest.Matchers._
 import org.scalatest._
 

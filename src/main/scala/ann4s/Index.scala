@@ -3,9 +3,6 @@ package ann4s
 import java.io.BufferedOutputStream
 import java.nio.{ByteBuffer, ByteOrder}
 
-import org.apache.spark.ml.nn.BLASProxy
-import org.apache.spark.ml.linalg.{DenseVector, Vector, Vectors}
-
 import scala.collection.mutable.ArrayBuffer
 import scala.tools.nsc.interpreter.OutputStream
 import scala.util.Random
@@ -44,7 +41,7 @@ class Index(val nodes: IndexedSeq[Node], val withItems: Boolean) extends Seriali
         bf.putInt(1)
         bf.putInt(0) // TODO: fill out norm
         bf.putInt(0)
-        for (x <- vector.toArray) bf.putFloat(x.toFloat)
+        for (x <- vector.values) bf.putFloat(x.toFloat)
         assert(bf.remaining() == 0)
         bos.write(bf.array())
         numItemNodes += 1
@@ -56,7 +53,7 @@ class Index(val nodes: IndexedSeq[Node], val withItems: Boolean) extends Seriali
             bf.putInt(numItemNodes)
             bf.putInt(l)
             bf.putInt(r)
-            for (x <- hyperplane.toArray) bf.putFloat(x.toFloat)
+            for (x <- hyperplane.values) bf.putFloat(x.toFloat)
             assert(bf.remaining() == 0)
             bos.write(bf.array())
           case FlipNode(l, r) =>
@@ -76,7 +73,7 @@ class Index(val nodes: IndexedSeq[Node], val withItems: Boolean) extends Seriali
         bf.putInt(Int.MaxValue) // fake
         bf.putInt(l)
         bf.putInt(r)
-        for (x <- hyperplane.toArray) bf.putFloat(x.toFloat)
+        for (x <- hyperplane.values) bf.putFloat(x.toFloat)
         assert(bf.remaining() == 0)
         bos.write(bf.array())
         numHyperplaneNodes += 1
@@ -130,7 +127,7 @@ object IndexBuilder {
 
   val iterationSteps = 200
 
-  def twoMeans(points: IndexedSeq[IdVectorWithNorm])(implicit distance: Distance, random: Random): (DenseVector, DenseVector) = {
+  def twoMeans(points: IndexedSeq[IdVectorWithNorm])(implicit distance: Distance, random: Random): (Vector, Vector) = {
     val count = points.length
     val i = random.nextInt(count)
     var j = random.nextInt(count - 1)
@@ -161,11 +158,11 @@ object IndexBuilder {
     (p.vector, q.vector)
   }
 
-  def createSplit(sample: IndexedSeq[IdVectorWithNorm])(implicit distance: Distance, random: Random): DenseVector = {
+  def createSplit(sample: IndexedSeq[IdVectorWithNorm])(implicit distance: Distance, random: Random): Vector = {
     val (p, q) = twoMeans(sample)
-    BLASProxy.axpy(-1, q, p)
-    val norm = Vectors.norm(p, 2)
-    BLASProxy.scal(1 / norm, p)
+    Vectors.axpy(-1, q, p)
+    val norm = Vectors.nrm2(p)
+    Vectors.scal(1 / norm, p)
     p
   }
 }
