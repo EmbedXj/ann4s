@@ -1,44 +1,34 @@
 package org.apache.spark.ml.nn
 
+import java.io.OutputStream
+
 import org.apache.hadoop.fs.Path
 import org.apache.spark.ml._
-import org.apache.spark.ml.linalg.{Vector, VectorUDT}
+import org.apache.spark.ml.linalg.VectorUDT
 import org.apache.spark.ml.param._
-import org.apache.spark.ml.param.shared._
+import org.apache.spark.ml.param.shared.HasSeed
 import org.apache.spark.ml.util._
-import org.apache.spark.sql.functions.col
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{DataFrame, Dataset, Row}
+import org.apache.spark.sql.{DataFrame, Dataset}
+import org.apache.spark.storage.StorageLevel
+import org.json4s.DefaultFormats
+import org.json4s.JsonDSL._
 
 import scala.util.Random
 
-case class IdVector(id: Int, vector: Vector)
+trait ANNParams extends Params with HasSeed {
 
-trait ANNParams extends Params with HasFeaturesCol with HasSeed {
-
-  final val idCol: Param[String] = new Param[String](this, "idCol", "id column name")
-
-  def getIdCol: String = $(idCol)
-
-  final val steps = new IntParam(this, "steps", "The number of steps" +
-    "Must be > 0 and < 30.", ParamValidators.inRange(1, 29))
-
-  def getSteps: Int = $(steps)
-
-  final val l = new IntParam(this, "l", "max number of items in a leaf")
-
-  def getL: Int = $(l)
-
-  final val sampleRate = new DoubleParam(this, "sampling rate", "sampling rate")
-
-  def getSampleRate: Double = $(sampleRate)
-
-  final val numTrees = new IntParam(this, "numTrees", "number of trees to build")
+  final val numTrees: IntParam = new IntParam(this, "numTrees", "number of trees to build")
 
   def getNumTrees: Int = $(numTrees)
 
+  final val fraction: DoubleParam = new DoubleParam(this, "fraction", "fraction of data to build parent tree")
+
+  def getFraction: Double = $(fraction)
+
   protected def validateAndTransformSchema(schema: StructType): StructType = {
-    SchemaUtils.checkColumnType(schema, $(featuresCol), new VectorUDT)
+    SchemaUtils.checkColumnType(schema, "id", IntegerType)
+    SchemaUtils.checkColumnType(schema, "vector", new VectorUDT)
     schema
   }
 }
@@ -65,28 +55,20 @@ trait ANNModelParams extends Params {
 
 class ANNModel private[ml] (
   override val uid: String,
+  val d: Int,
   val index: Index,
   @transient val items: Dataset[IdVector]
 )
   extends Model[ANNModel] with ANNParams with ANNModelParams with MLWritable {
 
-  setDefault(trainVal -> "train",  testVal -> "test", targetCol -> "target")
-
   override def copy(extra: ParamMap): ANNModel = {
-    copyValues(new ANNModel(uid, index, items), extra)
+    copyValues(new ANNModel(uid, d, index, items), extra)
   }
-
-  def setFeaturesCol(value: String): this.type = set(featuresCol, value)
-
-  def setTargetCol(value: String): this.type = set(targetCol, value)
-
-  def setTrainVal(value: String): this.type = set(trainVal, value)
-
-  def setTestVal(value: String): this.type = set(testVal, value)
 
   def setK(value: Int): this.type = set(k, value)
 
   override def transform(dataset: Dataset[_]): DataFrame = {
+    /*
     val sparkSession = dataset.sparkSession
     import sparkSession.implicits._
 
@@ -111,6 +93,8 @@ class ANNModel private[ml] (
       .topByKey(100)(Ordering.by(-_._2))
 
     nns.toDF("id", "nns")
+    */
+    ???
   }
 
   override def transformSchema(schema: StructType): StructType = {
@@ -118,6 +102,15 @@ class ANNModel private[ml] (
   }
 
   override def write: MLWriter = new ANNModel.ANNModelWriter(this)
+
+  def writeToAnnoyBinary(os: OutputStream): Unit = {
+    val indexWithItems = new IndexAggregator()
+      .prependItems(items.collect())
+      .aggregate(index.nodes)
+      .result()
+
+    indexWithItems.writeAnnoyBinary(d, os)
+  }
 
 }
 
@@ -130,10 +123,11 @@ object ANNModel extends MLReadable[ANNModel] {
   private[ANNModel] class ANNModelWriter(instance: ANNModel) extends MLWriter {
 
     override protected def saveImpl(path: String): Unit = {
-      DefaultParamsWriter.saveMetadata(instance, path, sc)
+      val extraMetadata = "d" -> instance.d
+      DefaultParamsWriter.saveMetadata(instance, path, sc, Some(extraMetadata))
       val indexPath = new Path(path, "index").toString
       val itemPath = new Path(path, "items").toString
-      val data = instance.index.copyStructuredForest()
+      val data = instance.index.toStructuredNodes
       sparkSession.createDataFrame(Array(data)).repartition(1).write.parquet(indexPath)
       instance.items.write.parquet(itemPath)
     }
@@ -148,11 +142,13 @@ object ANNModel extends MLReadable[ANNModel] {
       val sparkSession = super.sparkSession
       import sparkSession.implicits._
       val metadata = DefaultParamsReader.loadMetadata(path, sc, className)
+      implicit val format = DefaultFormats
+      val d = (metadata.metadata \ "d").extract[Int]
       val treePath = new Path(path, "index").toString
       val itemPath = new Path(path, "items").toString
-      val forest = sparkSession.read.parquet(treePath).as[StructuredForest].head()
+      val forest = sparkSession.read.parquet(treePath).as[StructuredNodes].head()
       val items = sparkSession.read.parquet(itemPath).as[IdVector]
-      val model = new ANNModel(metadata.uid, forest.copyCosineForest(), items)
+      val model = new ANNModel(metadata.uid, d, forest.copyCosineForest(), items)
       DefaultParamsReader.getAndSetParams(model, metadata)
       model
     }
@@ -162,60 +158,74 @@ object ANNModel extends MLReadable[ANNModel] {
 class ANN(override val uid: String)
   extends Estimator[ANNModel] with ANNParams with DefaultParamsWritable {
 
-  setDefault(idCol -> "id", steps -> 29, l -> 10000, sampleRate -> 0, numTrees -> 1)
+  setDefault(numTrees -> 1, fraction -> 0.01)
 
   override def copy(extra: ParamMap): ANN = defaultCopy(extra)
 
   def this() = this(Identifiable.randomUID("ann"))
 
-  def setFeaturesCol(value: String): this.type = set(featuresCol, value)
-
-  def setSeed(value: Long): this.type = set(seed, value)
-
-  def setSteps(value: Int): this.type = set(steps, value)
-
-  def setL(value: Int): this.type = set(l, value)
-
-  def setSampleRate(value: Double): this.type = set(sampleRate, value)
-
   def setNumTrees(value: Int): this.type = set(numTrees, value)
+
+  def setFraction(value: Double): this.type = set(fraction, value)
 
   override def fit(dataset: Dataset[_]): ANNModel = {
     val sparkSession = dataset.sparkSession
     import sparkSession.implicits._
+
     transformSchema(dataset.schema, logging = true)
 
-    val numItemsPerPartition = 100000
-    val numTrees1 = $(numTrees)
-    val leafNodeCapacity = 25 + 2
+    val handlePersistence = dataset.storageLevel == StorageLevel.NONE
 
-    val count = dataset.count()
-    val requiredPartitions = math.ceil(count.toDouble / numItemsPerPartition).toInt
-    val rdd = dataset.as[IdVector].rdd.map {
-      case IdVector(id, vector) => IdVectorWithNorm(id, vector)
-    }
-    val instances = if (rdd.getNumPartitions != requiredPartitions) {
-      rdd.repartition(requiredPartitions)
-    } else {
-      rdd
+    val instances = dataset.as[IdVector].rdd.map { x => IdVectorWithNorm(x.id, x.vector) }
+
+    if (handlePersistence) {
+      instances.persist(StorageLevel.MEMORY_AND_DISK)
     }
 
     val instr = Instrumentation.create(this, instances)
-    instr.logParams(featuresCol, seed, steps, l, sampleRate)
+    instr.logParams(numTrees, fraction, seed)
 
-    val indices = instances.mapPartitions { it =>
-      val builder = new IndexBuilder(numTrees1, leafNodeCapacity)(new Random())
-      // is toArray harmful?
-      val index = builder.build(it.toIndexedSeq)
-      Iterator.single(index)
+    // for local
+    val randomSeed = $(seed)
+    implicit val distance: Distance = CosineDistance
+    implicit val localRandom: Random = new Random(randomSeed)
+
+    val samples = instances.sample(withReplacement = false, $(fraction), localRandom.nextLong()).collect()
+
+    val d = samples.head.vector.size
+    val globalAggregator = new IndexAggregator
+    var i = 0
+    while (i < $(numTrees)) {
+      val parentTree = new IndexBuilder(1, d + 2).build(samples)
+      val localAggregator = new IndexAggregator().aggregate(parentTree.nodes)
+
+      val withSubTreeId = instances.mapPartitionsWithIndex { case (i, it) =>
+        // for nodes
+        val distance = CosineDistance
+        val random = new Random(randomSeed + i + 1)
+        it.map(x => parentTree.traverse(x.vector)(distance, random) -> x)
+      }
+      val grouped = withSubTreeId.groupByKey()
+
+      val subTreeNodesWithId = grouped.mapValues { it =>
+        new IndexBuilder(1, d + 2)(CosineDistance, Random).build(it.toIndexedSeq).nodes
+      }
+
+      subTreeNodesWithId.collect().foreach { case (subTreeId, subTreeNodes) =>
+        localAggregator.mergeSubTree(subTreeId, subTreeNodes)
+      }
+
+      globalAggregator.aggregate(localAggregator)
+      i += 1
     }
 
-    val aggregator = new IndexAggregator
-    indices.toLocalIterator foreach aggregator.aggregate
+    val index = globalAggregator.result()
 
-    val model = copyValues(new ANNModel(uid, aggregator.result(), dataset.as[IdVector])).setParent(this)
+    val model = copyValues(new ANNModel(uid, d, index, dataset.as[IdVector])).setParent(this)
     instr.logSuccess(model)
-
+    if (handlePersistence) {
+      instances.unpersist()
+    }
     model
   }
 

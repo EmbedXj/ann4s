@@ -2,7 +2,7 @@ package ann4s.spark
 
 import com.github.fommil.netlib.BLAS
 import org.apache.spark.ml.linalg.Vectors
-import org.apache.spark.ml.nn.{CosineTree, IdVectorWithNorm}
+import org.apache.spark.ml.nn.{CosineDistance, IdVectorWithNorm, IndexBuilder}
 import org.scalatest.Matchers._
 import org.scalatest._
 
@@ -25,7 +25,7 @@ class ArithmeticTest extends FunSuite {
     val ar = Array.fill(64)(Random.nextDouble())
     val v = IdVectorWithNorm(0, ar)
     val original = v.vector
-    val copied = v.copyMutableVectorWithNorm.vector
+    val copied = v.copyVectorWithNorm.vector
     assert(original ne copied)
   }
 
@@ -34,14 +34,14 @@ class ArithmeticTest extends FunSuite {
       val x = Array(0.245073, -0.0305736, 0.141645, -0.107982, 0.182384, -0.0315128, 0.385746, -0.244029, -0.130994, 0.0746861, 0.115483, 0.0793148, 0.191786, 0.319347, -0.0114862, 0.0260598, -0.259334, -0.220308, -0.257492, 0.164739, -0.0813075, 0.0480722, 0.283659, 0.181815, -0.388667)
       val y = Array(-0.633, -0.33511, 0.52545, 0.092909, -0.97386, -1.3496, -1.9191, -0.76974, 0.34711, -1.1012, -0.31359, 0.66227, 0.11019, -0.70333, 1.0159, -0.1288, 0.37742, 0.35706, -0.1153, 0.19528, 0.36092, 0.92362, -0.92318, 0.42094, 0.4587)
       val expected = -1.56117
-      val actual = CosineTree.margin(Vectors.dense(x), Vectors.dense(y))
+      val actual = CosineDistance.margin(Vectors.dense(x), Vectors.dense(y))
       actual should be(expected +- 1e4)
     }
     {
       val x = Array(-0.368924, -0.366624, 0.227047, -0.169617, 0.076067, 0.00397301, -0.108995, 0.567614, 0.153637, -0.0885213, 0.0445116, 0.102093, 0.22992, -0.00593557, 0.0848827, -0.234779, 0.174804, 0.00964413, -0.0611242, -0.0766848, -0.0589617, 0.0149084, -0.286581, -0.0595058, -0.143493)
       val y = Array(-0.633, -0.33511, 0.52545, 0.092909, -0.97386, -1.3496, -1.9191, -0.76974, 0.34711, -1.1012, -0.31359, 0.66227, 0.11019, -0.70333, 1.0159, -0.1288, 0.37742, 0.35706, -0.1153, 0.19528, 0.36092, 0.92362, -0.92318, 0.42094, 0.4587)
       val expected = 0.730868
-      val actual = CosineTree.margin(Vectors.dense(x), Vectors.dense(y))
+      val actual = CosineDistance.margin(Vectors.dense(x), Vectors.dense(y))
       actual should be(expected +- 1e4)
     }
   }
@@ -267,7 +267,7 @@ class ArithmeticTest extends FunSuite {
       }
     }
 
-    val (actualP, actualQ) = CosineTree.twoMeans(points)(new SequenceRandom)
+    val (actualP, actualQ) = IndexBuilder.twoMeans(points)(CosineDistance, new SequenceRandom)
 
     actualP.values zip expectedP foreach { case (a, e) =>
       a should be (e +- 1e-4)
@@ -276,7 +276,7 @@ class ArithmeticTest extends FunSuite {
       a should be (e +- 1e-4)
     }
 
-    val hyperplane = CosineTree.createSplit(points)(new SequenceRandom)
+    val hyperplane = IndexBuilder.createSplit(points)(CosineDistance, new SequenceRandom)
 
     // testing immutable
     points.map(_.vector.toArray) zip samples foreach { case (p, n) =>

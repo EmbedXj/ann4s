@@ -2,11 +2,13 @@ package org.apache.spark.ml.nn
 
 import scala.collection.mutable.ArrayBuffer
 
-class IndexAggregator() {
+class IndexAggregator(var nodes: ArrayBuffer[Node]) {
 
-  var nodes = new ArrayBuffer[Node]()
+  def this() = this(new ArrayBuffer[Node]())
 
   var withItems = false
+
+  def aggregate(other: IndexAggregator): this.type = aggregate(other.nodes)
 
   def aggregate(other: IndexedSeq[Node]): this.type = {
     val roots = new ArrayBuffer[Node]()
@@ -36,29 +38,23 @@ class IndexAggregator() {
     this
   }
 
-  def prependItems(items: IndexedSeq[IdVector]): this.type = {
+  def prependItems[T <: HasId with HasVector](items: IndexedSeq[T]): this.type = {
     assert(!withItems, "items already prepended")
     withItems = true
-    val itemSize = items.reduceLeft((x, y) => if (x.id > y.id) x else y).id + 1
+    val itemSize = items.reduceLeft((x, y) => if (x.getId > y.getId) x else y).getId + 1
     val itemNodes = new Array[Node](itemSize)
-    for (item <- items) itemNodes(item.id) = ItemNode(item.vector)
+    for (item <- items) itemNodes(item.getId) = ItemNode(item.getVector)
     val oldNodes = nodes
     nodes = new ArrayBuffer[Node](itemSize + oldNodes.length)
     nodes ++= itemNodes
     aggregate(oldNodes)
   }
 
-  // TODO: merge
-  def prependItems2(items: IndexedSeq[IdVectorWithNorm]): this.type = {
-    assert(!withItems, "items already prepended")
-    withItems = true
-    val itemSize = items.reduceLeft((x, y) => if (x.id > y.id) x else y).id + 1
-    val itemNodes = new Array[Node](itemSize)
-    for (item <- items) itemNodes(item.id) = ItemNode(item.vector)
-    val oldNodes = nodes
-    nodes = new ArrayBuffer[Node](itemSize + oldNodes.length)
-    nodes ++= itemNodes
-    aggregate(oldNodes)
+  def mergeSubTrees(it: Iterator[(Int, IndexedSeq[StructuredNode])]): this.type = {
+    it.foreach { case (subTreeId, subTreeNodes) =>
+      mergeSubTree(subTreeId, subTreeNodes.map(_.toNode))
+    }
+    this
   }
 
   def mergeSubTree(subTreeId: Int, other: IndexedSeq[Node]): this.type = {
@@ -103,6 +99,6 @@ class IndexAggregator() {
     this
   }
 
-  def result(): Index = new Index(nodes.toArray, withItems)
+  def result(): Index = new Index(nodes, withItems)
 
 }

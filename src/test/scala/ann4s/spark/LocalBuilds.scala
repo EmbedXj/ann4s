@@ -4,16 +4,16 @@ import java.io.{File, FileInputStream, FileOutputStream}
 import java.nio.{ByteBuffer, ByteOrder}
 
 import org.apache.spark.ml.linalg.Vectors
-import org.apache.spark.ml.nn.{IdVectorWithNorm, Index, IndexAggregator, IndexBuilder}
+import org.apache.spark.ml.nn._
 
 import scala.collection.mutable.ArrayBuffer
 import scala.util.Random
 
 object LocalBuilds {
 
-  def main(args: Array[String]): Unit = {
+  val d = 25
 
-    val d = 25
+  def readDataset(): IndexedSeq[IdVectorWithNorm] = {
     val data = new Array[Byte](d * 4)
     val ar = new Array[Float](d)
 
@@ -36,34 +36,43 @@ object LocalBuilds {
         println(id)
     }
     fis.close()
+    items
+  }
 
-    implicit val random = new Random(new Kiss32Random)
+  def main(args: Array[String]): Unit = {
 
-    val builder = new IndexBuilder(1, d + 2)
+    val items = readDataset()
+
+    val globalAggregator = new IndexAggregator
 
     val samples = Array.fill(10000)(items(Random.nextInt(items.length)))
 
-    val masterIndex = new Index(builder.build(samples).toArray, false)
+    implicit val random: Random = new Random
+    implicit val distance: Distance = CosineDistance
 
-    val aggregator = new IndexAggregator
-    aggregator.aggregate(masterIndex.nodes)
+    0 until 2 foreach { _ =>
 
-    items
-      .map { item =>
-        masterIndex.traverse(item.vector) -> item
-      }
-      .groupBy(_._1)
-      .map { case (subTreeId, it) =>
-        println(subTreeId, it.length)
-        subTreeId -> new IndexBuilder(1, d + 2).build(it.map(_._2))
-      }
-      .foreach { case (subTreeId, subTreeNodes) =>
-        aggregator.mergeSubTree(subTreeId, subTreeNodes)
-      }
+      val builder = new IndexBuilder(1, d + 2)
+      val parentTree = builder.build(samples)
+      val localAggregator = new IndexAggregator().aggregate(parentTree.nodes)
 
+      items
+        .map { item =>
+          parentTree.traverse(item.vector) -> item
+        }
+        .groupBy(_._1)
+        .map { case (subTreeId, it) =>
+          println(subTreeId, it.length)
+          subTreeId -> new IndexBuilder(1, d + 2).build(it.map(_._2))
+        }
+        .foreach { case (subTreeId, subTreeNodes) =>
+          localAggregator.mergeSubTree(subTreeId, subTreeNodes.nodes)
+        }
 
+      globalAggregator.aggregate(localAggregator.nodes)
+    }
 
-    val index = aggregator.prependItems2(items).result()
+    val index = globalAggregator.prependItems(items).result()
 
     val directory = new File("exp/annoy")
     directory.mkdirs()
