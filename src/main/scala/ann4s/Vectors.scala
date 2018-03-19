@@ -51,7 +51,6 @@ object Vectors {
     }
   }
 
-
   def dot(x: Vector, y: Vector): Double = {
     (x, y) match {
       case (SVector(sx), SVector(sy)) =>

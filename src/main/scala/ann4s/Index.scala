@@ -37,9 +37,10 @@ class Index(val nodes: IndexedSeq[Node], val withItems: Boolean) extends Seriali
     nodes foreach {
       case ItemNode(vector) =>
         assert(numRootNodes == 0 && numHyperplaneNodes == 0 && numLeafNodes == 0)
+        val nrm2 = Vectors.nrm2(vector).toFloat
         bf.clear()
         bf.putInt(1)
-        bf.putInt(0) // TODO: fill out norm
+        bf.putFloat(nrm2 * nrm2) // Annoy stores nrm2^2
         bf.putInt(0)
         for (x <- vector.values) bf.putFloat(x.toFloat)
         assert(bf.remaining() == 0)
