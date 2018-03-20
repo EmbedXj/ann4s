@@ -81,8 +81,8 @@ case class IdVector(id: Int, vector: Vector) extends HasId with HasVector {
   override def getVector: Vector = vector
 }
 
-class VectorWithNorm(val vector: Vector, var norm: Double)
-  extends HasVector with HasNorm with Serializable {
+case class VectorWithNorm(vector: Vector, var norm: Double)
+  extends HasVector with HasNorm {
 
   def aggregate(other: IdVectorWithNorm, c: Int): this.type = {
     Vectors.scal(c, vector)
@@ -96,6 +96,13 @@ class VectorWithNorm(val vector: Vector, var norm: Double)
   override def getNorm: Double = norm
 }
 
+object VectorWithNorm {
+
+  def apply(vector: Vector): VectorWithNorm =
+    VectorWithNorm(vector, Vectors.nrm2(vector))
+
+}
+
 case class IdVectorWithNorm(id: Int, vector: Vector, norm: Double)
   extends HasId with HasVector with HasNorm {
 
@@ -105,11 +112,11 @@ case class IdVectorWithNorm(id: Int, vector: Vector, norm: Double)
       case SVector(sx) =>
         val copied = SVector(sx.clone())
         Vectors.scal(1 / nrm2, copied)
-        new VectorWithNorm(copied, 1)
+        VectorWithNorm(copied, 1)
       case DVector(dx) =>
         val copied = DVector(dx.clone())
         Vectors.scal(1 / nrm2, copied)
-        new VectorWithNorm(copied, 1)
+        VectorWithNorm(copied, 1)
     }
   }
 
